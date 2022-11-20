@@ -12,10 +12,8 @@ data class RegistrationArgs(
     val loginId: ByteArray,
     val loginPublicKey: PublicKey,
     val derivationParams: PasswordDerivationParams,
-    val loginData: ByteArray,
     val restoreId: ByteArray,
-    val restoreData: ByteArray,
-    val extraData: ByteArray? = null
+    val restoreData: ByteArray
 )
 
 @Serializable
@@ -23,7 +21,6 @@ sealed class AuthenticationResult {
     @Serializable
     data class Success(
         val loginToken: ByteArray,
-        val extraData: ByteArray?
     ): AuthenticationResult()
 
     @Serializable
