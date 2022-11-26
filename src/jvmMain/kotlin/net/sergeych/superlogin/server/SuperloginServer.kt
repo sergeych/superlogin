@@ -25,4 +25,7 @@ inline fun <reified D, T : SLServerSession<D>, H : CommandHost<T>> AdapterBuilde
         loginName = null
         traits.logout()
     }
+    on(a2.slLoginByToken) { token ->
+        traits.loginByToken(token)
+    }
 }

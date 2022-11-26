@@ -44,7 +44,7 @@ kotlin {
             dependencies {
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.3")
                 api("net.sergeych:unikrypto:1.2.1-SNAPSHOT")
-                api("net.sergeych:parsec3:0.3.1-SNAPSHOT")
+                api("net.sergeych:parsec3:0.3.2-SNAPSHOT")
                 api("net.sergeych:boss-serialization-mp:0.2.4-SNAPSHOT")
 3            }
         }

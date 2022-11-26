@@ -65,7 +65,7 @@ class SuperloginClient<D, S : WithAdapter>(
                         adapterReady = CompletableDeferred()
                     }
                     globalLaunch {
-                        transport.adapter().invokeCommand(api.slLogout)
+                        transport.adapter().invokeCommand(serverApi.slLogout)
                         adapterReady.complete(Unit)
                     }
                 } else {
@@ -102,12 +102,12 @@ class SuperloginClient<D, S : WithAdapter>(
 
     private var jobs = listOf<Job>()
 
-    private val api = SuperloginServerApi<WithAdapter>()
+    private val serverApi = SuperloginServerApi<WithAdapter>()
 
     private suspend fun tryRestoreLogin() {
         slData?.loginToken?.let { token ->
             try {
-                val ar = transport.adapter().invokeCommand(api.slLoginByToken, token)
+                val ar = transport.adapter().invokeCommand(serverApi.slLoginByToken, token)
                 slData = if (ar is AuthenticationResult.Success) {
                     val data: D? = ar.applicationData?.let { BossDecoder.decodeFrom(dataType, it) }
                     SuperloginData(ar.loginToken, data)
@@ -170,10 +170,13 @@ class SuperloginClient<D, S : WithAdapter>(
         return rn.registerWithData(loginName, password, extraData = BossEncoder.encode(dataType, data))
             .also { rr ->
                 if (rr is Registration.Result.Success) {
-                    slData = SuperloginData(rr.loginToken, rr.encodedData?.let { BossDecoder.decodeFrom(dataType, it) })
+                    slData = SuperloginData(rr.loginToken, extractData(rr.encodedData))
                 }
             }
     }
+
+    private fun extractData(rr: ByteArray?): D?
+        = rr?.let { BossDecoder.decodeFrom(dataType, it) }
 
     private fun mustBeLoggedOut() {
         if (isLoggedIn)
@@ -190,14 +193,24 @@ class SuperloginClient<D, S : WithAdapter>(
         slData = null
     }
 
-    suspend fun LoginByToken(token: ByteArray): SuperloginData<D> {
+    /**
+     * Try to log in by specified token, returned by [Registration.Result.Success.loginToken] or
+     * [SuperloginData.loginToken] respectively.
+     *
+     * @return updated login data (and new token value) or null if token is not (or not anymore)
+     *         available for logging in.
+     */
+    suspend fun loginByToken(token: ByteArray): SuperloginData<D>? {
         mustBeLoggedOut()
-        val r = invoke(api.slLoginByToken,token)
-        when(r) {
+        val r = invoke(serverApi.slLoginByToken,token)
+        return when(r) {
             AuthenticationResult.LoginIdUnavailable -> TODO()
-            AuthenticationResult.LoginUnavailable -> TODO()
+            AuthenticationResult.LoginUnavailable -> null
             AuthenticationResult.RestoreIdUnavailable -> TODO()
-            is AuthenticationResult.Success -> TODO()
+            is AuthenticationResult.Success -> SuperloginData(
+                r.loginToken,
+                extractData(r.applicationData)
+            )
         }
     }
 

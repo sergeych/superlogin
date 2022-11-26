@@ -4,16 +4,15 @@ import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
+import net.sergeych.parsec3.CommandHost
 import net.sergeych.parsec3.Parsec3WSClient
 import net.sergeych.parsec3.WithAdapter
 import net.sergeych.parsec3.parsec3TransportServer
 import net.sergeych.superlogin.AuthenticationResult
 import net.sergeych.superlogin.RegistrationArgs
-import net.sergeych.superlogin.SuperloginServerApi
 import net.sergeych.superlogin.client.LoginState
 import net.sergeych.superlogin.client.Registration
 import net.sergeych.superlogin.client.SuperloginClient
-import net.sergeych.superlogin.server.SLServerApiBase
 import net.sergeych.superlogin.server.SLServerSession
 import net.sergeych.superlogin.server.SLServerTraits
 import net.sergeych.superlogin.server.superloginServer
@@ -22,11 +21,12 @@ import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 
 data class TestSession(var buzz: String = "BuZZ") : SLServerSession<TestData>()
 
 
-object TestApiServer : SLServerApiBase<TestData>() {
+class TestApiServer<T : WithAdapter> : CommandHost<T>() {
     val loginName by command<Unit, String?>()
 }
 
@@ -56,12 +56,28 @@ object TestServerTraits : SLServerTraits {
         }
     }
 
+    override suspend fun loginByToken(token: ByteArray): AuthenticationResult {
+        return byToken[token.toList()]?.let {
+            AuthenticationResult.Success(token, it.extraData)
+        } ?: AuthenticationResult.LoginUnavailable
+    }
+
 }
 
 @Serializable
 data class TestData(
     val foo: String,
 )
+
+//fun <S: SLServerSession<*>,A: CommandHost<S>> Application.superloginServer(
+//    traits: SLServerTraits,
+//    api: A,
+//    f: AdapterBuilder<S,A>.()->Unit) {
+//    parsec3TransportServer(api) {
+//        superloginServer(traits)
+//        f()
+//    }
+//}
 
 
 internal class WsServerKtTest {
@@ -71,7 +87,8 @@ internal class WsServerKtTest {
     fun testWsServer() {
 
         embeddedServer(Netty, port = 8080) {
-            parsec3TransportServer(TestApiServer) {
+            parsec3TransportServer(TestApiServer<SLServerSession<TestData>>()) {
+//            superloginServer(TestServerTraits,TestApiServer<SLServerSession<TestData>>()) {
                 newSession { TestSession() }
                 superloginServer(TestServerTraits)
                 on(api.loginName) {
@@ -80,11 +97,10 @@ internal class WsServerKtTest {
             }
         }.start(wait = false)
 
-        val client = Parsec3WSClient("ws://localhost:8080/api/p3", SuperloginServerApi<WithAdapter>()) {
-        }
-
+        val client = Parsec3WSClient("ws://localhost:8080/api/p3")
 
         runBlocking {
+            val api = TestApiServer<WithAdapter>()
             val slc = SuperloginClient<TestData, WithAdapter>(client)
             assertEquals(LoginState.LoggedOut, slc.state.value)
             var rt = slc.register("foo", "passwd", TestData("bar!"))
@@ -94,7 +110,7 @@ internal class WsServerKtTest {
             println(rt.secret)
             assertEquals("bar!", rt.data<TestData>()?.foo)
 
-            assertEquals("foo", slc.call(TestApiServer.loginName))
+            assertEquals("foo", slc.call(api.loginName))
 
             val s = slc.state.value
             assertIs<LoginState.LoggedIn<TestData>>(s)
@@ -105,12 +121,15 @@ internal class WsServerKtTest {
             }
             slc.logout()
             assertIs<LoginState.LoggedOut>(slc.state.value)
-            assertEquals(null, slc.call(TestApiServer.loginName))
+            assertEquals(null, slc.call(api.loginName))
 
             rt = slc.register("foo", "passwd", TestData("nobar"))
             assertIs<Registration.Result.InvalidLogin>(rt)
 
-//            slc.loginByToken()
+            var ar = slc.loginByToken(token)
+            assertNotNull(ar)
+            assertEquals("bar!", ar.data?.foo)
+            assertEquals("foo", slc.call(api.loginName))
         }
 
     }

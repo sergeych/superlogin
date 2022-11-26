@@ -23,5 +23,20 @@ interface SLServerTraits {
      */
     suspend fun register(registrationArgs: RegistrationArgs): AuthenticationResult
 
+    /**
+     * Logging out procedure does not need any extra logic unless reuired by application
+     * server software. Default implementation does nothing.
+     */
     suspend fun logout() {}
+
+    /**
+     * Try to log in using an authentication token, which normally is returned in
+     * [AuthenticationResult.Success.loginToken]. If the server implementation
+     * does not support login token, don't implement it, use the default implementation.
+     *
+     * Otherwise, implement login by token and return either [AuthenticationResult.Success]
+     * or [AuthenticationResult.LoginUnavailable]. So not return anything else.
+     */
+    suspend fun loginByToken(token: ByteArray): AuthenticationResult
+        = AuthenticationResult.LoginUnavailable
 }
