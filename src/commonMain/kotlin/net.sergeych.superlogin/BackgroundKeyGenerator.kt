@@ -12,7 +12,7 @@ object BackgroundKeyGenerator {
 
     const val DefaultStrength = 4096
 
-    class EntropyLowException : Exception("entropy level is below requested")
+    class EntropyLowException(current: Int,requested: Int) : Exception("entropy level is below requested ($current/$requested)")
 
     private var keyStrength = DefaultStrength
     private var nextKey: Deferred<PrivateKey>? = null
@@ -73,14 +73,17 @@ object BackgroundKeyGenerator {
     }
 
     fun randomBytes(length: Int,minEntropy: Int): ByteArray {
+        addEntropyTimestamp()
         entropyHash?.let {
             if (minEntropy <= entropy) {
                 entropy -= minEntropy
-                addEntropyTimestamp()
                 return randomBytes(length, it)
             }
         }
-        throw EntropyLowException()
+        if( minEntropy == 0 ) {
+            return randomBytes(length, null)
+        }
+        throw EntropyLowException(minEntropy, entropy)
     }
 
     fun randomBytes(length: Int, IV: ByteArray? = null): ByteArray {

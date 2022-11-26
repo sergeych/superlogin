@@ -11,7 +11,7 @@ import kotlin.random.Random
  * and a method to derive password accordingly.
  */
 @Serializable
-class PasswordDerivationParams(
+data class PasswordDerivationParams(
     val rounds: Int = 15000,
     val algorithm: HashAlgorithm = HashAlgorithm.SHA3_256,
     val salt: ByteArray = Random.nextBytes(32),

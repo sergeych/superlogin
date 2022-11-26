@@ -1,8 +1,12 @@
 plugins {
-    kotlin("multiplatform") version "1.7.20"
-    kotlin("plugin.serialization") version "1.7.20"
+    kotlin("multiplatform") version "1.7.10"
+    kotlin("plugin.serialization") version "1.7.10"
     `maven-publish`
 }
+
+val ktor_version="2.1.1"
+val logback_version="1.2.10"
+
 
 group = "net.sergeych"
 version = "0.0.1-SNAPSHOT"
@@ -51,7 +55,13 @@ kotlin {
             }
         }
         val jvmMain by getting
-        val jvmTest by getting
+        val jvmTest by getting {
+            dependencies {
+                implementation("io.ktor:ktor-server-core:$ktor_version")
+                implementation("io.ktor:ktor-server-netty:$ktor_version")
+                implementation("ch.qos.logback:logback-classic:$logback_version")
+            }
+        }
         val jsMain by getting
         val jsTest by getting
     }

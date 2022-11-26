@@ -1,4 +1,4 @@
-package net.sergeych.superlogin
+package net.sergeych.superlogin.server
 
 import kotlinx.serialization.Serializable
 import net.sergeych.unikrypto.PrivateKey
@@ -13,7 +13,7 @@ import net.sergeych.unikrypto.SymmetricKey
  * - storage key (used to safely keep stored data)
  */
 @Serializable
-data class SuperloginPayload(
+data class SuperloginRestoreAccessPayload(
     val login: String,
     val loginPrivateKey: PrivateKey,
     val dataStorageKey: SymmetricKey
