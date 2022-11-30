@@ -21,6 +21,7 @@ data class RegistrationArgs(
 sealed class AuthenticationResult {
     @Serializable
     data class Success(
+        val loginName: String,
         val loginToken: ByteArray,
         val applicationData: ByteArray?
     ): AuthenticationResult()
@@ -36,19 +37,32 @@ sealed class AuthenticationResult {
 }
 
 @Serializable
-data class LoginArgs(
+data class RequestLoginDataArgs(
+    val loginName: String,
     val loginId: ByteArray,
-    val packedSignedRecord: ByteArray
 )
 
+@Serializable
+data class RequestLoginDataResult(
+    val packedACO: ByteArray,
+    val nonce: ByteArray
+)
+
+@Serializable
+data class LoginByPasswordPayload(
+    val loginName: String
+)
 
 class SuperloginServerApi<T: WithAdapter> : CommandHost<T>() {
 
-    val slRegister by command<RegistrationArgs,AuthenticationResult>()
+    val slGetNonce by command<Unit,ByteArray>()
+    val slRegister by command<ByteArray,AuthenticationResult>()
     val slLogout by command<Unit,Unit>()
     val slLoginByToken by command<ByteArray,AuthenticationResult>()
 
     val slRequestDerivationParams by command<String,PasswordDerivationParams>()
+    val slRequestLoginData by command<RequestLoginDataArgs,RequestLoginDataResult>()
+    val slLoginByKey by command<ByteArray,AuthenticationResult>()
 
 
      /**

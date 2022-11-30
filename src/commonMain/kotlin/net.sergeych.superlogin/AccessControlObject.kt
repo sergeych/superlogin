@@ -1,10 +1,9 @@
 package net.sergeych.superlogin
 
 import kotlinx.serialization.Serializable
+import net.sergeych.boss_serialization.BossDecoder
 import net.sergeych.boss_serialization_mp.BossEncoder
 import net.sergeych.unikrypto.Container
-import net.sergeych.unikrypto.DecryptingKey
-import net.sergeych.unikrypto.Safe58
 import net.sergeych.unikrypto.SymmetricKey
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
@@ -131,8 +130,12 @@ class AccessControlObject<T>(
          */
         inline fun <reified T> unpackWithPasswordKey(packed: ByteArray, passwordKey: SymmetricKey): AccessControlObject<T>? =
             Container.decrypt<Data<T>>(packed, passwordKey)?.let {
-                println(it)
                 AccessControlObject(typeOf<Data<T>>(), packed, passwordKey, it)
+            }
+
+        fun <T>unpackWithPasswordKey(packed: ByteArray, passwordKey: SymmetricKey,payloadType: KType): AccessControlObject<T>? =
+            Container.decryptAsBytes(packed, passwordKey)?.let {
+                AccessControlObject(payloadType, packed, passwordKey, BossDecoder.decodeFrom(payloadType,it))
             }
 
         /**

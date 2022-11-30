@@ -11,6 +11,7 @@ import net.sergeych.parsec3.WithAdapter
 import net.sergeych.superlogin.*
 import net.sergeych.superlogin.server.SuperloginRestoreAccessPayload
 import net.sergeych.unikrypto.HashAlgorithm
+import net.sergeych.unikrypto.SignedRecord
 import net.sergeych.unikrypto.SymmetricKey
 import net.sergeych.unikrypto.digest
 import kotlin.random.Random
@@ -87,21 +88,25 @@ class Registration(
             passwordKeys = DerivedKeys.derive(password, lastDerivationParams!! )
             lastPasswordHash = newPasswordHash
         }
+        val nonce = adapter.invokeCommand(api.slGetNonce)
         val loginPrivateKey = deferredLoginKey.await()
         val spl = SuperloginRestoreAccessPayload(login, loginPrivateKey, dataKey)
         repeat(10) {
             val (restoreKey, restoreData) = AccessControlObject.pack(passwordKeys!!.loginAccessKey, spl)
             try {
-                val result = adapter.invokeCommand(
-                    api.slRegister, RegistrationArgs(
+                val packedArgs = SignedRecord.pack(
+                    loginPrivateKey,
+                    RegistrationArgs(
                         login,
                         passwordKeys!!.loginId,
                         deferredLoginKey.await().publicKey,
                         lastDerivationParams!!,
                         restoreKey.restoreId, restoreData,
                         extraData
-                    )
+                    ),
+                    nonce
                 )
+                val result = adapter.invokeCommand(api.slRegister, packedArgs)
                 when (result) {
                     AuthenticationResult.RestoreIdUnavailable -> {
                         // rare situation but still possible: just repack the ACO

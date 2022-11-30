@@ -17,8 +17,9 @@ import net.sergeych.parsec3.Adapter
 import net.sergeych.parsec3.CommandDescriptor
 import net.sergeych.parsec3.Parsec3Transport
 import net.sergeych.parsec3.WithAdapter
-import net.sergeych.superlogin.AuthenticationResult
-import net.sergeych.superlogin.SuperloginServerApi
+import net.sergeych.superlogin.*
+import net.sergeych.superlogin.server.SuperloginRestoreAccessPayload
+import net.sergeych.unikrypto.SignedRecord
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 
@@ -32,6 +33,7 @@ import kotlin.reflect.typeOf
  */
 @Serializable
 data class SuperloginData<T>(
+    val loginName: String,
     val loginToken: ByteArray? = null,
     val data: T? = null,
 )
@@ -60,14 +62,6 @@ class SuperloginClient<D, S : WithAdapter>(
                     // do actual disconnect work
                     _cflow.value = false
                     _state.value = LoginState.LoggedOut
-                    if (!adapterReady.isActive) {
-                        adapterReady.cancel()
-                        adapterReady = CompletableDeferred()
-                    }
-                    globalLaunch {
-                        transport.adapter().invokeCommand(serverApi.slLogout)
-                        adapterReady.complete(Unit)
-                    }
                 } else {
                     val v = _state.value
                     if (v !is LoginState.LoggedIn<*> || v.loginData != value) {
@@ -94,10 +88,12 @@ class SuperloginClient<D, S : WithAdapter>(
         } while (true)
     }
 
-    suspend fun <A, R> call(ca: CommandDescriptor<A, R>, args: A ): R = adapter().invokeCommand(ca, args)
+    suspend fun <A, R> call(ca: CommandDescriptor<A, R>, args: A): R = adapter().invokeCommand(ca, args)
     suspend fun <R> call(ca: CommandDescriptor<Unit, R>): R = adapter().invokeCommand(ca)
 
-    private suspend fun <A, R> invoke(ca: CommandDescriptor<A, R>, args: A ): R = transport.adapter().invokeCommand(ca, args)
+    private suspend fun <A, R> invoke(ca: CommandDescriptor<A, R>, args: A): R =
+        transport.adapter().invokeCommand(ca, args)
+
     private suspend fun <R> invoke(ca: CommandDescriptor<Unit, R>): R = transport.adapter().invokeCommand(ca)
 
     private var jobs = listOf<Job>()
@@ -110,7 +106,7 @@ class SuperloginClient<D, S : WithAdapter>(
                 val ar = transport.adapter().invokeCommand(serverApi.slLoginByToken, token)
                 slData = if (ar is AuthenticationResult.Success) {
                     val data: D? = ar.applicationData?.let { BossDecoder.decodeFrom(dataType, it) }
-                    SuperloginData(ar.loginToken, data)
+                    SuperloginData(ar.loginName, ar.loginToken, data)
                 } else {
                     null
                 }
@@ -170,13 +166,12 @@ class SuperloginClient<D, S : WithAdapter>(
         return rn.registerWithData(loginName, password, extraData = BossEncoder.encode(dataType, data))
             .also { rr ->
                 if (rr is Registration.Result.Success) {
-                    slData = SuperloginData(rr.loginToken, extractData(rr.encodedData))
+                    slData = SuperloginData(loginName, rr.loginToken, extractData(rr.encodedData))
                 }
             }
     }
 
-    private fun extractData(rr: ByteArray?): D?
-        = rr?.let { BossDecoder.decodeFrom(dataType, it) }
+    private fun extractData(rr: ByteArray?): D? = rr?.let { BossDecoder.decodeFrom(dataType, it) }
 
     private fun mustBeLoggedOut() {
         if (isLoggedIn)
@@ -188,8 +183,9 @@ class SuperloginClient<D, S : WithAdapter>(
             throw IllegalStateException("please log in first")
     }
 
-    fun logout() {
+    suspend fun logout() {
         mustBeLoggedIn()
+        invoke(serverApi.slLogout)
         slData = null
     }
 
@@ -202,15 +198,54 @@ class SuperloginClient<D, S : WithAdapter>(
      */
     suspend fun loginByToken(token: ByteArray): SuperloginData<D>? {
         mustBeLoggedOut()
-        val r = invoke(serverApi.slLoginByToken,token)
-        return when(r) {
+        val r = invoke(serverApi.slLoginByToken, token)
+        return when (r) {
             AuthenticationResult.LoginIdUnavailable -> TODO()
             AuthenticationResult.LoginUnavailable -> null
             AuthenticationResult.RestoreIdUnavailable -> TODO()
             is AuthenticationResult.Success -> SuperloginData(
+                r.loginName,
                 r.loginToken,
                 extractData(r.applicationData)
-            )
+            ).also {
+                slData = it
+            }
+        }
+    }
+
+    suspend fun loginByPassword(loginName: String, password: String): SuperloginData<D>? {
+        mustBeLoggedOut()
+        // Request derivation params
+        val params = invoke(serverApi.slRequestDerivationParams, loginName)
+        val keys = DerivedKeys.derive(password, params)
+        // Request login data by derived it
+        return invoke(
+            serverApi.slRequestLoginData,
+            RequestLoginDataArgs(loginName, keys.loginId)
+        ).let { loginRequest ->
+            try {
+                AccessControlObject.unpackWithPasswordKey<SuperloginRestoreAccessPayload>(
+                    loginRequest.packedACO,
+                    keys.loginAccessKey
+                )?.let { aco ->
+                    val result = invoke(
+                        serverApi.slLoginByKey,
+                        SignedRecord.pack(
+                            aco.payload.loginPrivateKey,
+                            LoginByPasswordPayload(loginName),
+                            loginRequest.nonce
+                        )
+                    )
+                    if (result is AuthenticationResult.Success) {
+                        SuperloginData(loginName, result.loginToken, extractData(result.applicationData))
+                            .also { slData = it }
+                    } else null
+                }
+            }
+            catch (t: Throwable) {
+                t.printStackTrace()
+                throw t
+            }
         }
     }
 
