@@ -183,7 +183,6 @@ internal class WsServerKtTest {
             assertEquals("foo", slc.call(api.loginName))
 
             slc.logout()
-            println(secret)
             assertNull(slc.resetPasswordAndLogin("bad_secret", "newpass2"))
             assertNull(slc.resetPasswordAndLogin("3PBpp-Aris5-ogdV7-Abz36-ggGH5", "newpass2"))
             ar = slc.resetPasswordAndLogin(secret,"newpass2")

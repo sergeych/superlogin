@@ -37,6 +37,11 @@ kotlin {
             commonWebpackConfig {
                 cssSupport.enabled = true
             }
+            testTask {
+                useMocha {
+                    timeout = "30000"
+                }
+            }
         }
     }
     sourceSets {
@@ -46,7 +51,8 @@ kotlin {
                 api("net.sergeych:unikrypto:1.2.2-SNAPSHOT")
                 api("net.sergeych:parsec3:0.3.3-SNAPSHOT")
                 api("net.sergeych:boss-serialization-mp:0.2.4-SNAPSHOT")
-3            }
+                api("net.sergeych:unikrypto:1.2.2-SNAPSHOT")
+            }
         }
         val commonTest by getting {
             dependencies {
