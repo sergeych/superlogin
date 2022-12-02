@@ -34,6 +34,7 @@ import kotlin.reflect.typeOf
  * @param passwordKey the password-derived key that could be used to unpack the [packed] data
  * @param data contains necessary data to keep and operate the ACO
  */
+@Suppress("OPT_IN_USAGE")
 class AccessControlObject<T>(
     val payloadType: KType,
     val packed: ByteArray,
@@ -62,7 +63,6 @@ class AccessControlObject<T>(
     class Data<T>(
         val restoreId: ByteArray,
         val derivedRestoreKey: SymmetricKey,
-        val passwordKey: SymmetricKey,
         val payload: T,
     )
 
@@ -71,7 +71,7 @@ class AccessControlObject<T>(
      * Use [packed] property on the result to save updated copy.
      */
     inline fun <reified R>updatePayload(newPayload: R): AccessControlObject<R> {
-        val data = Data(restoreId, data.derivedRestoreKey, passwordKey, newPayload)
+        val data = Data(restoreId, data.derivedRestoreKey, newPayload)
         return AccessControlObject<R>(
             typeOf<Data<R>>(),
             Container.encrypt(
@@ -87,7 +87,7 @@ class AccessControlObject<T>(
      * [newPasswordKey] only. The [payload] is not changed.
      */
     fun updatePasswordKey(newPasswordKey: SymmetricKey): AccessControlObject<T> {
-        val data = Data(restoreId, data.derivedRestoreKey, newPasswordKey, payload)
+        val data = Data(restoreId, data.derivedRestoreKey, payload)
         return AccessControlObject(
             payloadType,
             Container.encryptData(
@@ -119,7 +119,7 @@ class AccessControlObject<T>(
         ): Pair<RestoreKey, ByteArray> {
             val restoreKey = RestoreKey.generate()
             return restoreKey to Container.encrypt(
-                Data(restoreKey.restoreId, restoreKey.key, passwordKey,payload),
+                Data(restoreKey.restoreId, restoreKey.key, payload),
                 passwordKey, restoreKey.key
             )
         }
@@ -146,7 +146,7 @@ class AccessControlObject<T>(
          */
         suspend inline fun <reified T> unpackWithSecret(packed: ByteArray, secret: String): AccessControlObject<T>? {
             try {
-                val (id, key) = RestoreKey.parse(secret)
+                val (_, key) = RestoreKey.parse(secret)
                 return unpackWithKey(packed, key)
             }
             catch(_: RestoreKey.InvalidSecretException) {
