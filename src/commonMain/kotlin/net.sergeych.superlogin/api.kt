@@ -1,5 +1,6 @@
 package net.sergeych.superlogin
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import net.sergeych.parsec3.CommandHost
 import net.sergeych.parsec3.WithAdapter
@@ -13,13 +14,14 @@ data class RegistrationArgs(
     val loginPublicKey: PublicKey,
     val derivationParams: PasswordDerivationParams,
     val restoreId: ByteArray,
-    val restoreData: ByteArray,
+    val packedACO: ByteArray,
     val extraData: ByteArray? = null
 )
 
 @Serializable
 sealed class AuthenticationResult {
     @Serializable
+    @SerialName("Success")
     data class Success(
         val loginName: String,
         val loginToken: ByteArray,
@@ -27,31 +29,48 @@ sealed class AuthenticationResult {
     ): AuthenticationResult()
 
     @Serializable
+    @SerialName("LoginUnavailable")
     object LoginUnavailable: AuthenticationResult()
 
     @Serializable
+    @SerialName("LoginIdUnavailable")
     object LoginIdUnavailable: AuthenticationResult()
 
     @Serializable
+    @SerialName("RestoreIdUnavailable")
     object RestoreIdUnavailable: AuthenticationResult()
 }
 
 @Serializable
-data class RequestLoginDataArgs(
+class RequestACOByLoginNameArgs(
     val loginName: String,
     val loginId: ByteArray,
 )
 
 @Serializable
-data class RequestLoginDataResult(
+class RequestACOResult(
     val packedACO: ByteArray,
     val nonce: ByteArray
 )
 
 @Serializable
-data class LoginByPasswordPayload(
+class LoginByPasswordPayload(
     val loginName: String
 )
+
+@Serializable
+class ChangePasswordArgs(
+    val loginName: String,
+    val packedSignedRecord: ByteArray
+)
+
+@Serializable
+class ChangePasswordPayload(
+    val packedACO: ByteArray,
+    val passwordDerivationParams: PasswordDerivationParams,
+    val newLoginKey: PublicKey
+)
+
 
 class SuperloginServerApi<T: WithAdapter> : CommandHost<T>() {
 
@@ -61,13 +80,11 @@ class SuperloginServerApi<T: WithAdapter> : CommandHost<T>() {
     val slLoginByToken by command<ByteArray,AuthenticationResult>()
 
     val slRequestDerivationParams by command<String,PasswordDerivationParams>()
-    val slRequestLoginData by command<RequestLoginDataArgs,RequestLoginDataResult>()
+    val slRequestACOByLoginName by command<RequestACOByLoginNameArgs,RequestACOResult>()
     val slLoginByKey by command<ByteArray,AuthenticationResult>()
 
+    val slRequestACOBySecretId by command<ByteArray,ByteArray>()
+    val slChangePasswordAndLogin by command <ChangePasswordArgs,AuthenticationResult>()
 
-     /**
-     * Get resstoreData by restoreId: password reset procedure start.
-     */
-//    val requestUserLogin by command<ByteArray,ByteArray>()
-//    val performLogin by command<LoginArgs
+    val slSendTestException by command<Unit,Unit>()
 }

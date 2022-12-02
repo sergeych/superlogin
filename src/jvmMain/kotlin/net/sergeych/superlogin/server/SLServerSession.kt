@@ -69,20 +69,35 @@ abstract class SLServerSession<T> : WithAdapter() {
      * Retreive exact password derivation params as were stored by registration.
      * @return derivation params for the login name or null if the name is not known
      */
-    abstract suspend fun requestDerivationParams(login: String): PasswordDerivationParams?
+    abstract suspend fun requestDerivationParams(loginName: String): PasswordDerivationParams?
 
     /**
      * Override this method, check loginId to match loginName, and of ot os ok, return packed ACO
      * @return packed ACO or null if loginName is wrong, or loginId does not match it.
      */
-    abstract suspend fun requestLoginData(loginName: String,loginId: ByteArray): ByteArray?
+    abstract suspend fun requestACOByLoginName(loginName: String, loginId: ByteArray): ByteArray?
+
+    /**
+     * Implement retrieving ACO object by restoreId. Return found object ot null.
+     */
+    abstract suspend fun requestACOByRestoreId(restoreId: ByteArray): ByteArray?
 
     /**
      * Implementation must: find the actual user by loginName and check the publicKey is valid (for example
      * matches stored key id in the database, and return
      * @return [AuthenticationResult.Success]
      */
-    abstract suspend fun loginByKey(loginName: String,publicKey: PublicKey): AuthenticationResult
+    abstract suspend fun loginByKey(loginName: String, publicKey: PublicKey): AuthenticationResult
+
+    /**
+     * Update access control object (resotre data) to the specified.
+     */
+    abstract suspend fun updateAccessControlData(
+        loginName: String,
+        packedData: ByteArray,
+        passwordDerivationParams: PasswordDerivationParams,
+        newLoginKey: PublicKey
+    )
 }
 
 inline fun <reified D, T : SLServerSession<D>> T.setSlData(it: AuthenticationResult.Success) {

@@ -1,8 +1,6 @@
 package net.sergeych.superlogin.client
 
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
@@ -13,10 +11,7 @@ import net.sergeych.mp_logger.Loggable
 import net.sergeych.mp_logger.exception
 import net.sergeych.mp_logger.warning
 import net.sergeych.mp_tools.globalLaunch
-import net.sergeych.parsec3.Adapter
-import net.sergeych.parsec3.CommandDescriptor
-import net.sergeych.parsec3.Parsec3Transport
-import net.sergeych.parsec3.WithAdapter
+import net.sergeych.parsec3.*
 import net.sergeych.superlogin.*
 import net.sergeych.superlogin.server.SuperloginRestoreAccessPayload
 import net.sergeych.unikrypto.SignedRecord
@@ -43,6 +38,7 @@ class SuperloginClient<D, S : WithAdapter>(
     private val transport: Parsec3Transport<S>,
     savedData: SuperloginData<D>? = null,
     private val dataType: KType,
+    override val exceptionsRegistry: ExceptionsRegistry = ExceptionsRegistry(),
 ) : Parsec3Transport<S>, Loggable by LogTag("SLCLI") {
 
     private val _state = MutableStateFlow<LoginState>(
@@ -77,16 +73,16 @@ class SuperloginClient<D, S : WithAdapter>(
 
     private var adapterReady = CompletableDeferred<Unit>()
 
-    override suspend fun adapter(): Adapter<S> {
-        do {
-            try {
-                adapterReady.await()
-                return transport.adapter()
-            } catch (x: Throwable) {
-                exception { "failed to get adapter" to x }
-            }
-        } while (true)
-    }
+    override suspend fun adapter(): Adapter<S> = transport.adapter()
+//        do {
+//            try {
+//                adapterReady.await()
+//                return transport.adapter()
+//            } catch (x: Throwable) {
+//                exception { "failed to get adapter" to x }
+//            }
+//        } while (true)
+//    }
 
     suspend fun <A, R> call(ca: CommandDescriptor<A, R>, args: A): R = adapter().invokeCommand(ca, args)
     suspend fun <R> call(ca: CommandDescriptor<Unit, R>): R = adapter().invokeCommand(ca)
@@ -119,6 +115,7 @@ class SuperloginClient<D, S : WithAdapter>(
     }
 
     init {
+        transport.registerExceptinos(SuperloginExceptionsRegistry)
         jobs += globalLaunch {
             transport.connectedFlow.collect { on ->
                 if (on) tryRestoreLogin()
@@ -220,11 +217,11 @@ class SuperloginClient<D, S : WithAdapter>(
         val keys = DerivedKeys.derive(password, params)
         // Request login data by derived it
         return invoke(
-            serverApi.slRequestLoginData,
-            RequestLoginDataArgs(loginName, keys.loginId)
+            serverApi.slRequestACOByLoginName,
+            RequestACOByLoginNameArgs(loginName, keys.loginId)
         ).let { loginRequest ->
             try {
-                AccessControlObject.unpackWithPasswordKey<SuperloginRestoreAccessPayload>(
+                AccessControlObject.unpackWithKey<SuperloginRestoreAccessPayload>(
                     loginRequest.packedACO,
                     keys.loginAccessKey
                 )?.let { aco ->
@@ -241,13 +238,120 @@ class SuperloginClient<D, S : WithAdapter>(
                             .also { slData = it }
                     } else null
                 }
-            }
-            catch (t: Throwable) {
+            } catch (t: Throwable) {
                 t.printStackTrace()
                 throw t
             }
         }
     }
+
+    /**
+     * Resets password and log in using a `secret` string (one that wwas reported on registration. __Never store
+     * secrt string in your app__. Always ask user to enter it just before the operation and wipe it out
+     * immediately after. It is a time-consuming procedure. Note that on success the client state changes
+     * to [LoginState.LoggedIn].
+     *
+     * @param secret the secret string as was reported when registering
+     * @param newPassword new password (apply strength checks, it is not checked here)
+     * @param loginKeyStrength desired login key strength (it will be generated there)
+     * @param params password derivation params: it is possible to change its strength here
+     * @return login data instance on success or null
+     */
+    suspend fun resetPasswordAndLogin(
+        secret: String, newPassword: String,
+        params: PasswordDerivationParams = PasswordDerivationParams(),
+        loginKeyStrength: Int = 2048
+    ): SuperloginData<D>? {
+        mustBeLoggedOut()
+        return try {
+            val (id, key) = RestoreKey.parse(secret)
+            val packedACO = invoke(serverApi.slRequestACOBySecretId, id)
+            AccessControlObject.unpackWithKey<SuperloginRestoreAccessPayload>(packedACO, key)?.let {
+                changePasswordWithACO(it, newPassword)
+                slData
+            }
+        } catch (x: RestoreKey.InvalidSecretException) {
+            null
+        } catch (x: Exception) {
+            x.printStackTrace()
+            null
+        }
+    }
+
+    /**
+     * Changes the password (which includes generating new login key). Does not require any particular
+     * [state]. This is a long operation. On success, it changes (updates) [state] to [LoginState.LoggedIn]
+     * with new data whatever it was before. Be aware of it.
+     */
+    protected suspend fun changePasswordWithACO(
+        aco: AccessControlObject<SuperloginRestoreAccessPayload>,
+        newPassword: String,
+        params: PasswordDerivationParams = PasswordDerivationParams(),
+        loginKeyStrength: Int = 2048,
+    ): Boolean {
+        return coroutineScope {
+            // Get current nonce in parallel
+            val deferredNonce = async { invoke(serverApi.slGetNonce) }
+            // get login key in parallel
+            val newLoginKey = BackgroundKeyGenerator.getKeyAsync(loginKeyStrength)
+            // derive keys in main scope
+            val keys = DerivedKeys.derive(newPassword, params)
+
+            // new ACO payload: new login key, old data storage key and login
+            val newSlp = SuperloginRestoreAccessPayload(
+                aco.payload.login,
+                newLoginKey.await(),
+                aco.payload.dataStorageKey
+            )
+            // new ACO with a new password key and payload (but the same secret!)
+            var newAco = aco.updatePasswordKey(keys.loginAccessKey).updatePayload(newSlp)
+            // trying to update
+            val result = invoke(
+                serverApi.slChangePasswordAndLogin, ChangePasswordArgs(
+                    aco.payload.login,
+                    SignedRecord.pack(aco.payload.loginPrivateKey,
+                        ChangePasswordPayload(newAco.packed,params,newLoginKey.await().publicKey),
+                        deferredNonce.await())
+                )
+            )
+            when (result) {
+                is AuthenticationResult.Success -> {
+                    slData = SuperloginData(result.loginName, result.loginToken, extractData(result.applicationData))
+                    true
+                }
+
+                else -> {
+                    warning { "Change password result: $result" }
+                    false
+                }
+            }
+        }
+    }
+
+    /**
+     * Change password for a logged-in user using its known password. It is a long operation
+     * @param oldPassword existing password (re-request it from a user!)
+     * @param newPassword new password. we do not chek it but it should be strong - check it on your end
+     *                    for example with [net.sergeych.unikrypto.Passwords] tools
+     * @param passwordDerivationParams at this point derivation parameters are alwaus updated so it is possible
+     *                    to set it to desired
+     * @param loginKeyStrength login key is regenerateed so its strength could be updated here
+     * @return true if the password has been successfully changed
+     */
+    suspend fun changePassword(oldPassword: String, newPassword: String,
+                               passwordDerivationParams: PasswordDerivationParams = PasswordDerivationParams(),
+                               loginKeyStrength: Int = 2048
+    ): Boolean {
+        mustBeLoggedIn()
+        val loginName = slData?.loginName ?: throw SLInternalException("loginName should be defined here")
+        val dp = invoke(serverApi.slRequestDerivationParams,loginName)
+        val keys = DerivedKeys.derive(oldPassword,dp)
+        val data = invoke(serverApi.slRequestACOByLoginName,RequestACOByLoginNameArgs(loginName,keys.loginId))
+        return AccessControlObject.unpackWithKey<SuperloginRestoreAccessPayload>(data.packedACO, keys.loginAccessKey)?.let {
+            changePasswordWithACO(it, newPassword,passwordDerivationParams, loginKeyStrength)
+        } ?: false
+    }
+
 
     companion object {
         inline operator fun <reified D, S : WithAdapter> invoke(

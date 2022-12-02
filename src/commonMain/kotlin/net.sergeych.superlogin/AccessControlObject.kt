@@ -26,7 +26,7 @@ import kotlin.reflect.typeOf
  * To construct it please use one of:_
  *
  * - [AccessControlObject.pack] to generate new
- * - [AccessControlObject.unpackWithPasswordKey] to decrypt it with a password key
+ * - [AccessControlObject.unpackWithKey] to decrypt it with a password key
  * - [AccessControlObject.unpackWithSecret] to decrypt it with a `secret`
  *
  * @param payloadType  used to properly serialize application=specific data for [payload]
@@ -125,15 +125,16 @@ class AccessControlObject<T>(
         }
 
         /**
-         * Unpack and decrypt ACO with a password key
+         * Unpack and decrypt ACO with a password key or secret-based key (this once can be obtained from `secret`
+         * with [RestoreKey.parse].
          * @return decrypted ACO or null if the key is wrong.
          */
-        inline fun <reified T> unpackWithPasswordKey(packed: ByteArray, passwordKey: SymmetricKey): AccessControlObject<T>? =
-            Container.decrypt<Data<T>>(packed, passwordKey)?.let {
-                AccessControlObject(typeOf<Data<T>>(), packed, passwordKey, it)
+        inline fun <reified T> unpackWithKey(packed: ByteArray, key: SymmetricKey): AccessControlObject<T>? =
+            Container.decrypt<Data<T>>(packed, key)?.let {
+                AccessControlObject(typeOf<Data<T>>(), packed, key, it)
             }
 
-        fun <T>unpackWithPasswordKey(packed: ByteArray, passwordKey: SymmetricKey,payloadType: KType): AccessControlObject<T>? =
+        fun <T>unpackWithKey(packed: ByteArray, passwordKey: SymmetricKey, payloadType: KType): AccessControlObject<T>? =
             Container.decryptAsBytes(packed, passwordKey)?.let {
                 AccessControlObject(payloadType, packed, passwordKey, BossDecoder.decodeFrom(payloadType,it))
             }
@@ -146,14 +147,11 @@ class AccessControlObject<T>(
         suspend inline fun <reified T> unpackWithSecret(packed: ByteArray, secret: String): AccessControlObject<T>? {
             try {
                 val (id, key) = RestoreKey.parse(secret)
-                return Container.decrypt<Data<T>>(packed, key)?.let { data ->
-                    AccessControlObject(typeOf<Data<T>>(), packed, data.passwordKey, data)
-                }
+                return unpackWithKey(packed, key)
             }
             catch(_: RestoreKey.InvalidSecretException) {
                 return null
             }
         }
-
     }
 }

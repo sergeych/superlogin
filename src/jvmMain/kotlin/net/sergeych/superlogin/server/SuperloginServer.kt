@@ -7,19 +7,22 @@ import net.sergeych.superlogin.*
 import net.sergeych.unikrypto.SignedRecord
 import kotlin.random.Random
 
-
+fun randomACOLike(): ByteArray {
+    return Random.nextBytes(117)
+}
 inline fun <reified D, T : SLServerSession<D>, H : CommandHost<T>> AdapterBuilder<T, H>.superloginServer() {
+    addErrors(SuperloginExceptionsRegistry)
     val a2 = SuperloginServerApi<WithAdapter>()
     on(a2.slGetNonce) { nonce }
     on(a2.slRegister) { packed ->
         requireLoggedOut()
         val ra = SignedRecord.unpack(packed) { sr ->
-            if( !(sr.nonce contentEquals nonce) )
+            if (!(sr.nonce contentEquals nonce))
                 throw IllegalArgumentException("wrong signed record nonce")
         }.decode<RegistrationArgs>()
 
         register(ra).also { rr ->
-            if( rr is AuthenticationResult.Success) {
+            if (rr is AuthenticationResult.Success) {
                 setSlData(rr)
             }
         }
@@ -31,7 +34,7 @@ inline fun <reified D, T : SLServerSession<D>, H : CommandHost<T>> AdapterBuilde
     on(a2.slLoginByToken) { token ->
         requireLoggedOut()
         loginByToken(token).also {
-            if( it is AuthenticationResult.Success)
+            if (it is AuthenticationResult.Success)
                 setSlData(it)
         }
     }
@@ -40,10 +43,10 @@ inline fun <reified D, T : SLServerSession<D>, H : CommandHost<T>> AdapterBuilde
         // slow down login scanning
         requestDerivationParams(name) ?: PasswordDerivationParams()
     }
-    on(a2.slRequestLoginData) { args ->
-        requestLoginData(args.loginName,args.loginId)?.let {
-            RequestLoginDataResult(it, nonce)
-        } ?: RequestLoginDataResult(Random.nextBytes(117), nonce)
+    on(a2.slRequestACOByLoginName) { args ->
+        requestACOByLoginName(args.loginName, args.loginId)?.let {
+            RequestACOResult(it, nonce)
+        } ?: RequestACOResult(randomACOLike(), nonce)
     }
     on(a2.slLoginByKey) { packedSR ->
         try {
@@ -53,14 +56,47 @@ inline fun <reified D, T : SLServerSession<D>, H : CommandHost<T>> AdapterBuilde
             }
             val loginName: String = sr.decode<LoginByPasswordPayload>().loginName
             loginByKey(loginName, sr.publicKey).also {
-                if( it is AuthenticationResult.Success)
+                if (it is AuthenticationResult.Success)
                     setSlData(it)
             }
-        }
-        catch(x: Exception) {
+        } catch (x: Exception) {
             // most likely, wrong nonce, less probable bad signature
             AuthenticationResult.LoginUnavailable
         }
+    }
+    on(a2.slChangePasswordAndLogin) { args ->
+        val currentSlData = superloginData
+        try {
+            val sr = SignedRecord.unpack(args.packedSignedRecord) {
+                if (!(it.nonce contentEquals nonce)) throw IllegalArgumentException()
+            }
+            val payload = sr.decode<ChangePasswordPayload>()
+            val loginResult = loginByKey(args.loginName, sr.publicKey)
+            if (loginResult is AuthenticationResult.Success) {
+                setSlData(loginResult)
+                updateAccessControlData(
+                    args.loginName,
+                    payload.packedACO,
+                    payload.passwordDerivationParams,
+                    payload.newLoginKey
+                )
+                println(">> ${loginResult.loginToken} -- !")
+            }
+            loginResult
+        } catch (_: IllegalArgumentException) {
+            superloginData = currentSlData
+            AuthenticationResult.LoginUnavailable
+        } catch (x: Throwable) {
+            x.printStackTrace()
+            superloginData = currentSlData
+            AuthenticationResult.LoginUnavailable
+        }
+    }
+    on(a2.slRequestACOBySecretId) {
+        requestACOByRestoreId(it) ?: randomACOLike()
+    }
+    on(a2.slSendTestException) {
+        throw SLInternalException("test")
     }
 }
 

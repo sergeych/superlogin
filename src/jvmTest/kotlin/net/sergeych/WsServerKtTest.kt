@@ -1,5 +1,6 @@
 package net.sergeych
 
+import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import kotlinx.coroutines.runBlocking
@@ -8,9 +9,7 @@ import net.sergeych.parsec3.CommandHost
 import net.sergeych.parsec3.Parsec3WSClient
 import net.sergeych.parsec3.WithAdapter
 import net.sergeych.parsec3.parsec3TransportServer
-import net.sergeych.superlogin.AuthenticationResult
-import net.sergeych.superlogin.PasswordDerivationParams
-import net.sergeych.superlogin.RegistrationArgs
+import net.sergeych.superlogin.*
 import net.sergeych.superlogin.client.LoginState
 import net.sergeych.superlogin.client.Registration
 import net.sergeych.superlogin.client.SuperloginClient
@@ -56,11 +55,15 @@ data class TestSession(var buzz: String = "BuZZ") : SLServerSession<TestData>() 
             ?: AuthenticationResult.LoginUnavailable
     }
 
-    override suspend fun requestDerivationParams(login: String): PasswordDerivationParams? =
-        byLogin[login]?.derivationParams
+    override suspend fun requestDerivationParams(loginName: String): PasswordDerivationParams? =
+        byLogin[loginName]?.derivationParams
 
-    override suspend fun requestLoginData(loginName: String, loginId: ByteArray): ByteArray? {
-        return byLogin[loginName]?.restoreData
+    override suspend fun requestACOByLoginName(loginName: String, loginId: ByteArray): ByteArray? {
+        return byLogin[loginName]?.packedACO
+    }
+
+    override suspend fun requestACOByRestoreId(restoreId: ByteArray): ByteArray? {
+        return byRestoreId[restoreId.toList()]?.packedACO
     }
 
     override suspend fun loginByKey(loginName: String, publicKey: PublicKey): AuthenticationResult {
@@ -69,6 +72,25 @@ data class TestSession(var buzz: String = "BuZZ") : SLServerSession<TestData>() 
             AuthenticationResult.Success(ra.loginName, tokens[loginName]!!, ra.extraData)
         else AuthenticationResult.LoginUnavailable
     }
+
+    override suspend fun updateAccessControlData(
+        loginName: String,
+        packedData: ByteArray,
+        passwordDerivationParams: PasswordDerivationParams,
+        newLoginKey: PublicKey,
+    ) {
+        val r = byLogin[loginName]?.copy(
+            packedACO = packedData,
+            derivationParams = passwordDerivationParams,
+            loginPublicKey = newLoginKey
+        )
+            ?: throw RuntimeException("login not found")
+        byLogin[loginName] = r
+        byLoginId[r.loginId.toList()] = r
+        byToken[currentLoginToken!!.toList()] = r
+        byRestoreId[r.restoreId.toList()] = r
+    }
+
 }
 
 
@@ -88,17 +110,7 @@ internal class WsServerKtTest {
     @Test
     fun testWsServer() {
 
-        embeddedServer(Netty, port = 8080) {
-            parsec3TransportServer(TestApiServer<SLServerSession<TestData>>()) {
-//            superloginServer(TestServerTraits,TestApiServer<SLServerSession<TestData>>()) {
-                newSession { TestSession() }
-                superloginServer()
-                on(api.loginName) {
-                    println("login name called. now we have $currentLoginName : $superloginData")
-                    currentLoginName
-                }
-            }
-        }.start(wait = false)
+        embeddedServer(Netty, port = 8080, module = Application::testServerModule).start(wait = false)
 
         val client = Parsec3WSClient("ws://localhost:8080/api/p3")
 
@@ -138,18 +150,75 @@ internal class WsServerKtTest {
             assertEquals("foo", slc.call(api.loginName))
 //
             assertThrowsAsync<IllegalStateException> { slc.loginByToken(token) }
-            slc.logout()
-
-            assertNull(slc.loginByPassword("foo", "wrong"))
-            ar = slc.loginByPassword("foo", "passwd")
-            println(ar)
-            assertNotNull(ar)
-            assertEquals("bar!", ar.data?.foo)
-            assertTrue { slc.isLoggedIn }
-            assertEquals("foo", slc.call(api.loginName))
         }
 
     }
 
+    @Test
+    fun changePasswordTest() {
+        embeddedServer(Netty, port = 8081, module = Application::testServerModule).start(wait = false)
 
+        runBlocking {
+            val client = Parsec3WSClient("ws://localhost:8081/api/p3")
+
+            val api = TestApiServer<WithAdapter>()
+            val slc = SuperloginClient<TestData, WithAdapter>(client)
+            assertEquals(LoginState.LoggedOut, slc.state.value)
+            var rt = slc.register("foo", "passwd", TestData("bar!"))
+            assertIs<Registration.Result.Success>(rt)
+            val secret = rt.secret
+            var token = rt.loginToken
+
+            assertFalse(slc.changePassword("wrong", "new"))
+            assertTrue(slc.changePassword("passwd", "newpass1"))
+            assertTrue { slc.isLoggedIn }
+            assertEquals("foo", slc.call(api.loginName))
+
+            slc.logout()
+            assertNull(slc.loginByPassword("foo", "passwd"))
+            var ar = slc.loginByPassword("foo", "newpass1")
+            assertNotNull(ar)
+            assertEquals("bar!", ar.data?.foo)
+            assertTrue { slc.isLoggedIn }
+            assertEquals("foo", slc.call(api.loginName))
+
+            slc.logout()
+            println(secret)
+            assertNull(slc.resetPasswordAndLogin("bad_secret", "newpass2"))
+            assertNull(slc.resetPasswordAndLogin("3PBpp-Aris5-ogdV7-Abz36-ggGH5", "newpass2"))
+            ar = slc.resetPasswordAndLogin(secret,"newpass2")
+            assertNotNull(ar)
+            assertEquals("bar!", ar.data?.foo)
+            assertTrue { slc.isLoggedIn }
+            assertEquals("foo", slc.call(api.loginName))
+
+        }
+    }
+
+    @Test
+    fun testExceptions() {
+        embeddedServer(Netty, port = 8082, module = Application::testServerModule).start(wait = false)
+        val client = Parsec3WSClient("ws://localhost:8082/api/p3")
+        runBlocking {
+            val slc = SuperloginClient<TestData, WithAdapter>(client)
+            val serverApi = SuperloginServerApi<WithAdapter>()
+            assertThrowsAsync<SLInternalException> {
+                slc.call(serverApi.slSendTestException,Unit)
+            }
+        }
+
+    }
+
+}
+
+fun Application.testServerModule() {
+    parsec3TransportServer(TestApiServer<SLServerSession<TestData>>()) {
+//            superloginServer(TestServerTraits,TestApiServer<SLServerSession<TestData>>()) {
+        newSession { TestSession() }
+        superloginServer()
+        on(api.loginName) {
+            println("login name called. now we have $currentLoginName : $superloginData")
+            currentLoginName
+        }
+    }
 }

@@ -9,6 +9,6 @@ suspend inline fun <reified T: Throwable> assertThrowsAsync(f: suspend () -> Uni
     }
     catch(x: Throwable) {
         if( x !is T )
-            fail("${x::class.simpleName} was thrown instead of ${T::class.simpleName}")
+            fail("${x::class.simpleName} was thrown instead of ${T::class.simpleName}: $x")
     }
 }
