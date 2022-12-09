@@ -10,7 +10,10 @@ import kotlin.random.Random
 fun randomACOLike(): ByteArray {
     return Random.nextBytes(117)
 }
-inline fun <reified D, T : SLServerSession<D>, H : CommandHost<T>> AdapterBuilder<T, H>.superloginServer() {
+inline fun <reified D, T : SLServerSession<D>, H : CommandHost<T>> AdapterBuilder<T, H>.superloginServer(
+    crossinline sessionBuilder: suspend ()->T
+) {
+    newSession { sessionBuilder() }
     addErrors(SuperloginExceptionsRegistry)
     val a2 = SuperloginServerApi<WithAdapter>()
     on(a2.slGetNonce) { nonce }

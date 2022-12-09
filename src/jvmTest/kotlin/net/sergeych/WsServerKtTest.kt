@@ -154,15 +154,17 @@ internal class WsServerKtTest {
 
     }
 
+    class S1: WithAdapter()
+
     @Test
     fun changePasswordTest() {
         embeddedServer(Netty, port = 8081, module = Application::testServerModule).start(wait = false)
 
         runBlocking {
-            val client = Parsec3WSClient("ws://localhost:8081/api/p3")
+            val client = Parsec3WSClient.withSession<S1>("ws://localhost:8081/api/p3")
 
             val api = TestApiServer<WithAdapter>()
-            val slc = SuperloginClient<TestData, WithAdapter>(client)
+            val slc = SuperloginClient<TestData, S1>(client)
             assertEquals(LoginState.LoggedOut, slc.state.value)
             var rt = slc.register("foo", "passwd", TestData("bar!"))
             assertIs<Registration.Result.Success>(rt)
@@ -211,10 +213,9 @@ internal class WsServerKtTest {
 }
 
 fun Application.testServerModule() {
-    parsec3TransportServer(TestApiServer<SLServerSession<TestData>>()) {
+    parsec3TransportServer(TestApiServer<TestSession>()) {
 //            superloginServer(TestServerTraits,TestApiServer<SLServerSession<TestData>>()) {
-        newSession { TestSession() }
-        superloginServer()
+        superloginServer { TestSession() }
         on(api.loginName) {
             println("login name called. now we have $currentLoginName : $superloginData")
             currentLoginName

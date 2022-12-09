@@ -354,7 +354,7 @@ class SuperloginClient<D, S : WithAdapter>(
 
 
     companion object {
-        inline operator fun <reified D, S : WithAdapter> invoke(
+        inline operator fun <reified D,S : WithAdapter> invoke(
             t: Parsec3Transport<S>,
             savedData: SuperloginData<D>? = null,
         ): SuperloginClient<D, S> {
