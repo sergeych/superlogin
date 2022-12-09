@@ -10,8 +10,29 @@ import kotlin.random.Random
 fun randomACOLike(): ByteArray {
     return Random.nextBytes(117)
 }
+
+/**
+ * Create a superlogin server on a curretn adapter builder, using some session builder lambda.
+ * Note that session must inherit [SLServerSession] and implement necessary abstract methods
+ * that do store and retrieve user data. It sould be used like:
+ * ```
+ *     parsec3TransportServer(TestApiServer<TestSession>()) {
+ *         // the session extends SLServerSession and contain app-specific data and
+ *         // storage/retrieve methods:
+ *         superloginServer { TestSession() }
+ *
+ *         // Sample service-specifiv api (above login api):
+ *         on(api.loginName) {
+ *             println("login name called. now we have $currentLoginName : $superloginData")
+ *             currentLoginName
+ *         }
+ *     }
+ * ```
+ *
+ * @param sessionBuilder code that builds a new session over the adapter.
+ */
 inline fun <reified D, T : SLServerSession<D>, H : CommandHost<T>> AdapterBuilder<T, H>.superloginServer(
-    crossinline sessionBuilder: suspend ()->T
+    crossinline sessionBuilder: suspend AdapterBuilder<T,H>.()->T
 ) {
     newSession { sessionBuilder() }
     addErrors(SuperloginExceptionsRegistry)
