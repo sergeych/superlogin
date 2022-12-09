@@ -60,7 +60,11 @@ kotlin {
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.6.4")
             }
         }
-        val jvmMain by getting
+        val jvmMain by getting {
+            dependencies {
+                implementation("io.ktor:ktor-server-core:$ktor_version")
+            }
+        }
         val jvmTest by getting {
             dependencies {
                 implementation("io.ktor:ktor-server-core:$ktor_version")

@@ -14,6 +14,12 @@ It also contains useful tools for this type of application:
 
 - `AccessControlObject` to contain recoverable password-protected data with a backup `secret` word to restore access.
 
-Will be published under MIT when become usable.
+## Usage
+
+Currently, complie it and publisj into mavenLocal, and use from there. Soon will be published to some public maven repo.
+
+## License 
+
+Will be published under MIT as soon as first RC will be published.
 
 
