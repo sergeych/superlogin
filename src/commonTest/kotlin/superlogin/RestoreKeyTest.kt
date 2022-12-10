@@ -1,8 +1,8 @@
 package superlogin
 
 import kotlinx.coroutines.test.runTest
+import net.sergeych.superlogin.InitSuperlogin
 import net.sergeych.superlogin.RestoreKey
-import net.sergeych.superlogin.initOperations
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -12,7 +12,7 @@ internal class RestoreKeyTest {
 
     @Test
     fun checkRestoreKey() = runTest {
-        initOperations()
+        InitSuperlogin()
         val rk = RestoreKey.generate()
 
         val (id, k) = RestoreKey.parse(rk.secret)

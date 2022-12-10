@@ -2,6 +2,7 @@ package net.sergeych.superlogin
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import net.sergeych.boss_serialization_mp.BossEncoder
 import net.sergeych.boss_serialization_mp.decodeBoss
 import net.sergeych.parsec3.CommandHost
 import net.sergeych.parsec3.WithAdapter
@@ -18,14 +19,14 @@ data class RegistrationArgs(
     val packedACO: ByteArray,
     val extraData: ByteArray? = null
 ) {
-    fun toSuccess(loginToken: ByteArray,extraData: ByteArray? = this.extraData): AuthenticationResult.Success {
+    inline fun <reified T>toSuccess(loginToken: ByteArray,extraData: T): AuthenticationResult.Success {
         return AuthenticationResult.Success(
-            loginName, loginToken, extraData
+            loginName, loginToken, BossEncoder.encode(extraData)
         )
     }
 
-    inline fun <reified T>decodeOrNull(): T? = extraData?.let { it.decodeBoss() }
-    inline fun <reified T>decodeOrThrow(): T = extraData?.let { it.decodeBoss() }
+    inline fun <reified T>decodeOrNull(): T? = extraData?.let { it.decodeBoss<T>() }
+    inline fun <reified T: Any>decodeOrThrow(): T = extraData?.let { it.decodeBoss<T>() }
         ?: throw IllegalArgumentException("missing require extra data of type ${T::class.simpleName}")
 }
 
@@ -100,3 +101,4 @@ class SuperloginServerApi<T: WithAdapter> : CommandHost<T>() {
 
     val slSendTestException by command<Unit,Unit>()
 }
+

@@ -159,7 +159,6 @@ inline fun <reified D, T : SLServerSession<D>, H : CommandHost<T>> AdapterBuilde
                     payload.newLoginKey,
                     payload.newLoginId
                 )
-                println(">> ${loginResult.loginToken} -- !")
             }
             loginResult
         } catch (_: IllegalArgumentException) {

@@ -2,7 +2,7 @@ package superlogin
 
 import kotlinx.coroutines.test.runTest
 import net.sergeych.superlogin.AccessControlObject
-import net.sergeych.superlogin.initOperations
+import net.sergeych.superlogin.InitSuperlogin
 import net.sergeych.unikrypto.SymmetricKeys
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -13,7 +13,7 @@ internal class AccessControlObjectTest {
 
     @Test
     fun createRestoreTest() = runTest {
-        initOperations()
+        InitSuperlogin()
 
         val pk1 = SymmetricKeys.random()
         val pk2 = SymmetricKeys.random()
