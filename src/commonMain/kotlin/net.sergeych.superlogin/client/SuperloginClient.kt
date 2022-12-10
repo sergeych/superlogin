@@ -310,7 +310,7 @@ class SuperloginClient<D, S : WithAdapter>(
                 serverApi.slChangePasswordAndLogin, ChangePasswordArgs(
                     aco.payload.login,
                     SignedRecord.pack(aco.payload.loginPrivateKey,
-                        ChangePasswordPayload(newAco.packed,params,newLoginKey.await().publicKey),
+                        ChangePasswordPayload(newAco.packed,params,newLoginKey.await().publicKey,keys.loginId),
                         deferredNonce.await())
                 )
             )

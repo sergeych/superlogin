@@ -156,7 +156,8 @@ inline fun <reified D, T : SLServerSession<D>, H : CommandHost<T>> AdapterBuilde
                     args.loginName,
                     payload.packedACO,
                     payload.passwordDerivationParams,
-                    payload.newLoginKey
+                    payload.newLoginKey,
+                    payload.newLoginId
                 )
                 println(">> ${loginResult.loginToken} -- !")
             }

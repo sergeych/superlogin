@@ -94,9 +94,10 @@ abstract class SLServerSession<T> : WithAdapter() {
      */
     abstract suspend fun updateAccessControlData(
         loginName: String,
-        packedData: ByteArray,
+        packedACO: ByteArray,
         passwordDerivationParams: PasswordDerivationParams,
-        newLoginKey: PublicKey
+        newLoginKey: PublicKey,
+        newLoginId: ByteArray
     )
 }
 

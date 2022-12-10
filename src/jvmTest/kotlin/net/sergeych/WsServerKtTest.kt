@@ -72,18 +72,22 @@ data class TestSession(var buzz: String = "BuZZ") : SLServerSession<TestData>() 
 
     override suspend fun updateAccessControlData(
         loginName: String,
-        packedData: ByteArray,
+        packedACO: ByteArray,
         passwordDerivationParams: PasswordDerivationParams,
         newLoginKey: PublicKey,
+        newLoginId: ByteArray
     ) {
-        val r = byLogin[loginName]?.copy(
-            packedACO = packedData,
+        val r = byLogin[loginName]?.also {
+           byLoginId.remove(it.loginId.toList())
+        }?.copy(
+            packedACO = packedACO,
             derivationParams = passwordDerivationParams,
-            loginPublicKey = newLoginKey
+            loginPublicKey = newLoginKey,
+            loginId = newLoginId
         )
             ?: throw RuntimeException("login not found")
         byLogin[loginName] = r
-        byLoginId[r.loginId.toList()] = r
+        byLoginId[newLoginId.toList()] = r
         byToken[currentLoginToken!!.toList()] = r
         byRestoreId[r.restoreId.toList()] = r
     }

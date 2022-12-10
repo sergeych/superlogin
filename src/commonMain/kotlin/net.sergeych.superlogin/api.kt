@@ -2,6 +2,7 @@ package net.sergeych.superlogin
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import net.sergeych.boss_serialization_mp.decodeBoss
 import net.sergeych.parsec3.CommandHost
 import net.sergeych.parsec3.WithAdapter
 import net.sergeych.unikrypto.PublicKey
@@ -16,7 +17,17 @@ data class RegistrationArgs(
     val restoreId: ByteArray,
     val packedACO: ByteArray,
     val extraData: ByteArray? = null
-)
+) {
+    fun toSuccess(loginToken: ByteArray,extraData: ByteArray? = this.extraData): AuthenticationResult.Success {
+        return AuthenticationResult.Success(
+            loginName, loginToken, extraData
+        )
+    }
+
+    inline fun <reified T>decodeOrNull(): T? = extraData?.let { it.decodeBoss() }
+    inline fun <reified T>decodeOrThrow(): T = extraData?.let { it.decodeBoss() }
+        ?: throw IllegalArgumentException("missing require extra data of type ${T::class.simpleName}")
+}
 
 @Serializable
 sealed class AuthenticationResult {
@@ -61,14 +72,15 @@ class LoginByPasswordPayload(
 @Serializable
 class ChangePasswordArgs(
     val loginName: String,
-    val packedSignedRecord: ByteArray
+    val packedSignedRecord: ByteArray,
 )
 
 @Serializable
 class ChangePasswordPayload(
     val packedACO: ByteArray,
     val passwordDerivationParams: PasswordDerivationParams,
-    val newLoginKey: PublicKey
+    val newLoginKey: PublicKey,
+    val newLoginId: ByteArray
 )
 
 
