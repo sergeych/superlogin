@@ -5,13 +5,15 @@ import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
-import net.sergeych.parsec3.*
+import net.sergeych.parsec3.CommandHost
+import net.sergeych.parsec3.Parsec3WSClient
+import net.sergeych.parsec3.WithAdapter
 import net.sergeych.superlogin.*
 import net.sergeych.superlogin.client.LoginState
 import net.sergeych.superlogin.client.Registration
 import net.sergeych.superlogin.client.SuperloginClient
 import net.sergeych.superlogin.server.SLServerSession
-import net.sergeych.superlogin.server.setupSuperloginServer
+import net.sergeych.superlogin.server.superloginServer
 import net.sergeych.unikrypto.PublicKey
 import superlogin.assertThrowsAsync
 import kotlin.random.Random
@@ -235,19 +237,8 @@ internal class WsServerKtTest {
 
 }
 
-inline fun <reified D, T : SLServerSession<D>, H : CommandHost<T>> Application.SuperloginServer(
-    api: H,
-    crossinline sessionBuilder: suspend AdapterBuilder<T, H>.()->T,
-    crossinline adapterBuilder: AdapterBuilder<T, H>.()->Unit
-) {
-    parsec3TransportServer(api) {
-        setupSuperloginServer { sessionBuilder() }
-        adapterBuilder()
-    }
-}
-
 fun Application.testServerModule() {
-    SuperloginServer(TestApiServer<TestSession>(), { TestSession() }) {
+    superloginServer(TestApiServer<TestSession>(), { TestSession() }) {
         on(api.loginName) {
             println("login name called. now we have $currentLoginName : $superloginData")
             currentLoginName

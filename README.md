@@ -14,9 +14,40 @@ It also contains useful tools for this type of application:
 
 - `AccessControlObject` to contain recoverable password-protected data with a backup `secret` word to restore access.
 
-## Usage
+## Setup
 
-Currently, complie it and publisj into mavenLocal, and use from there. Soon will be published to some public maven repo.
+Currently, complie it and publish into mavenLocal, and use from there. Soon will be published to some public maven repo.
+
+## Usage with ktor server
+
+Use module for initialization like this:
+~~~
+fun Application.testServerModule() {
+    superloginServer(TestApiServer<TestSession>(), { TestSession() }) {
+        // This is a sample of your porvate API implementation:
+        on(api.loginName) {
+            println("login name called. now we have $currentLoginName : $superloginData")
+            currentLoginName
+        }
+    }
+}
+~~~
+Nothe that your test session should inhert from and implement all abstract methods of `SLServerSession` abstract class to work properly.
+
+Now you can just use the module in your ktor server initialization:
+~~~
+embeddedServer(Netty, port = 8082, module = Application::testServerModule).start()
+~~~
+Of course you can initialize superlogin server separately. In any case see autodocs for `superloginServer()` function.
+
+On the client side it could look like:
+~~~
+    val api = TestApiServer<WithAdapter>()
+    val slc = SuperloginClient<TestData, S1>(client)
+    var rt = slc.register("foo", "passwd", TestData("bar!"))
+~~~
+See autodocs for `SuperloginClient` for more.
+
 
 ## License 
 

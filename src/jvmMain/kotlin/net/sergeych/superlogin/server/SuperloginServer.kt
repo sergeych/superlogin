@@ -21,7 +21,7 @@ fun randomACOLike(): ByteArray {
  * ~~~
  *
  * // Application-specific API declaration
- * class TestApiServer<T : WithAdapter> : CommandHost<T>() {
+ * class TestApiServer<S : WithAdapter> : CommandHost<S>() {
  *     val foobar by command<Unit, String?>()
  * }
  *
@@ -48,14 +48,14 @@ fun randomACOLike(): ByteArray {
  * @param adapterBuilder block that should implement service-specific api.
  * @param D application specific data (included in the session and transferred with registration
  *          and login)
- * @param T service-specific session, class implementing any session-based code specific to the
+ * @param S service-specific session, class implementing any session-based code specific to the
  *          application but also implement necessary `superlogin` methods (implementing abstract
  *          ones) that implement user login data persistence and search.
  */
-inline fun <reified D, T : SLServerSession<D>,> Application.SuperloginServer(
-    api: CommandHost<T>,
-    crossinline sessionBuilder: suspend AdapterBuilder<T, CommandHost<T>>.()->T,
-    crossinline adapterBuilder: AdapterBuilder<T, CommandHost<T>>.()->Unit
+inline fun <reified D, S : SLServerSession<D>,A: CommandHost<S>> Application.superloginServer(
+    api: A,
+    crossinline sessionBuilder: suspend AdapterBuilder<S, A>.()->S,
+    crossinline adapterBuilder: AdapterBuilder<S, A>.()->Unit
 ) {
     parsec3TransportServer(api) {
         setupSuperloginServer { sessionBuilder() }
@@ -67,7 +67,7 @@ inline fun <reified D, T : SLServerSession<D>,> Application.SuperloginServer(
 /**
  * Set up a superlogin server manually, on a current adapter builder, using some session builder lambda.
  * Note that session must inherit [SLServerSession] and implement necessary abstract methods
- * that do store and retrieve user data. Usually you can do it easier with [SuperloginServer] call.
+ * that do store and retrieve user data. Usually you can do it easier with [superloginServer] call.
  * If you want to do it manually (fr example using a custom transport), do it like this:
  * ```
  *     parsec3TransportServer(TestApiServer<TestSession>()) {
