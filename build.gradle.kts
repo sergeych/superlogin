@@ -76,4 +76,15 @@ kotlin {
         val jsMain by getting
         val jsTest by getting
     }
++    publishing {
+        repositories {
+            maven {
+                url = uri("https://maven.universablockchain.com/")
+                credentials {
+                    username = System.getenv("maven_user")
+                    password = System.getenv("maven_password")
+                }
+            }
+        }
+    }
 }
