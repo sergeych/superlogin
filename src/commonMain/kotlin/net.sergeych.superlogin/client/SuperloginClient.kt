@@ -16,6 +16,7 @@ import net.sergeych.parsec3.*
 import net.sergeych.superlogin.*
 import net.sergeych.superlogin.server.SuperloginRestoreAccessPayload
 import net.sergeych.unikrypto.SignedRecord
+import net.sergeych.unikrypto.SymmetricKey
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 
@@ -59,6 +60,7 @@ class SuperloginClient<D, S : WithAdapter>(
                     // do actual disconnect work
                     _cflow.value = false
                     _state.value = LoginState.LoggedOut
+                    dataKey = null
                 } else {
                     val v = _state.value
                     if (v !is LoginState.LoggedIn<*> || v.loginData != value) {
@@ -96,6 +98,7 @@ class SuperloginClient<D, S : WithAdapter>(
      * Call client API commands with it (uses [adapter] under the hood)
      */
     suspend fun <A, R> call(ca: CommandDescriptor<A, R>, args: A): R = adapter().invokeCommand(ca, args)
+
     /**
      * Call client API commands with it (uses [adapter] under the hood)
      */
@@ -113,7 +116,7 @@ class SuperloginClient<D, S : WithAdapter>(
     private suspend fun tryRestoreLogin() {
         slData?.loginToken?.let { token ->
             debug { "trying to restore login with a token" }
-            while( true ) {
+            while (true) {
                 try {
                     val ar = transport.adapter().invokeCommand(serverApi.slLoginByToken, token)
                     slData = if (ar is AuthenticationResult.Success) {
@@ -173,6 +176,15 @@ class SuperloginClient<D, S : WithAdapter>(
     val isLoggedIn get() = state.value.isLoggedIn
 
     /**
+     * The data storage key, a random key created when registering. It is retrieved automatically
+     * on login by password and on registration, _It does not restore when logged in by key
+     * as it would require storing user's password which must not be done_.
+     * Use [retrieveDataKey] to restore to with a password (when logged in)
+     */
+    var dataKey: SymmetricKey? = null
+        private set
+
+    /**
      * Perform registration and login attempt and return the result. It automatically caches and reuses intermediate
      * long-calculated keys so it runs much fatser when called again with the same password.
      *
@@ -193,6 +205,7 @@ class SuperloginClient<D, S : WithAdapter>(
             .also { rr ->
                 if (rr is Registration.Result.Success) {
                     slData = SuperloginData(loginName, rr.loginToken, extractData(rr.encodedData))
+                    dataKey = rr.dataKey
                 }
             }
     }
@@ -264,13 +277,52 @@ class SuperloginClient<D, S : WithAdapter>(
                     )
                     if (result is AuthenticationResult.Success) {
                         SuperloginData(loginName, result.loginToken, extractData(result.applicationData))
-                            .also { slData = it }
+                            .also {
+                                slData = it
+                                dataKey = aco.data.payload.dataStorageKey
+                            }
                     } else null
                 }
             } catch (t: Throwable) {
                 t.printStackTrace()
                 throw t
             }
+        }
+    }
+
+    /**
+     * Try to retrieve dataKey (usually after login by token), it is impossible
+     * to do without a valid password key. Should be logged in. If [dataKey] is not null
+     * what means is already known, returns it immediatel, otherwise uses password
+     * to access ACO on the server and extract data key.
+     * @return data key or null if it is impossible to do (no connection or wrong password)
+     */
+    suspend fun retrieveDataKey(password: String): SymmetricKey? {
+        mustBeLoggedIn()
+        dataKey?.let { return it }
+
+        val loginName = slData?.loginName ?: throw SLInternalException("slData: empty login name")
+        try {
+            val params = invoke(
+                serverApi.slRequestDerivationParams,
+                loginName
+            )
+            val keys = DerivedKeys.derive(password, params)
+            // Request login data by derived it
+            return invoke(
+                serverApi.slRequestACOByLoginName,
+                RequestACOByLoginNameArgs(loginName, keys.loginId)
+            ).let { loginRequest ->
+                AccessControlObject.unpackWithKey<SuperloginRestoreAccessPayload>(
+                    loginRequest.packedACO,
+                    keys.loginAccessKey
+                )?.let { aco ->
+                    aco.data.payload.dataStorageKey.also { dataKey = it }
+                }
+            }
+        } catch (t: Throwable) {
+            t.printStackTrace()
+            return null
         }
     }
 
@@ -286,10 +338,10 @@ class SuperloginClient<D, S : WithAdapter>(
      * @param params password derivation params: it is possible to change its strength here
      * @return login data instance on success or null
      */
-    suspend fun resetPasswordAndLogin(
+    suspend fun resetPasswordAndSignIn(
         secret: String, newPassword: String,
         params: PasswordDerivationParams = PasswordDerivationParams(),
-        loginKeyStrength: Int = 2048
+        loginKeyStrength: Int = 2048,
     ): SuperloginData<D>? {
         mustBeLoggedOut()
         return try {
@@ -297,6 +349,7 @@ class SuperloginClient<D, S : WithAdapter>(
             val packedACO = invoke(serverApi.slRequestACOBySecretId, id)
             AccessControlObject.unpackWithKey<SuperloginRestoreAccessPayload>(packedACO, key)?.let {
                 changePasswordWithACO(it, newPassword)
+                dataKey = it.data.payload.dataStorageKey
                 slData
             }
         } catch (x: RestoreKey.InvalidSecretException) {
@@ -338,9 +391,11 @@ class SuperloginClient<D, S : WithAdapter>(
             val result = invoke(
                 serverApi.slChangePasswordAndLogin, ChangePasswordArgs(
                     aco.payload.login,
-                    SignedRecord.pack(aco.payload.loginPrivateKey,
-                        ChangePasswordPayload(newAco.packed,params,newLoginKey.await().publicKey,keys.loginId),
-                        deferredNonce.await())
+                    SignedRecord.pack(
+                        aco.payload.loginPrivateKey,
+                        ChangePasswordPayload(newAco.packed, params, newLoginKey.await().publicKey, keys.loginId),
+                        deferredNonce.await()
+                    )
                 )
             )
             when (result) {
@@ -367,23 +422,25 @@ class SuperloginClient<D, S : WithAdapter>(
      * @param loginKeyStrength login key is regenerateed so its strength could be updated here
      * @return true if the password has been successfully changed
      */
-    suspend fun changePassword(oldPassword: String, newPassword: String,
-                               passwordDerivationParams: PasswordDerivationParams = PasswordDerivationParams(),
-                               loginKeyStrength: Int = 2048
+    suspend fun changePassword(
+        oldPassword: String, newPassword: String,
+        passwordDerivationParams: PasswordDerivationParams = PasswordDerivationParams(),
+        loginKeyStrength: Int = 2048,
     ): Boolean {
         mustBeLoggedIn()
         val loginName = slData?.loginName ?: throw SLInternalException("loginName should be defined here")
-        val dp = invoke(serverApi.slRequestDerivationParams,loginName)
-        val keys = DerivedKeys.derive(oldPassword,dp)
-        val data = invoke(serverApi.slRequestACOByLoginName,RequestACOByLoginNameArgs(loginName,keys.loginId))
-        return AccessControlObject.unpackWithKey<SuperloginRestoreAccessPayload>(data.packedACO, keys.loginAccessKey)?.let {
-            changePasswordWithACO(it, newPassword,passwordDerivationParams, loginKeyStrength)
-        } ?: false
+        val dp = invoke(serverApi.slRequestDerivationParams, loginName)
+        val keys = DerivedKeys.derive(oldPassword, dp)
+        val data = invoke(serverApi.slRequestACOByLoginName, RequestACOByLoginNameArgs(loginName, keys.loginId))
+        return AccessControlObject.unpackWithKey<SuperloginRestoreAccessPayload>(data.packedACO, keys.loginAccessKey)
+            ?.let {
+                changePasswordWithACO(it, newPassword, passwordDerivationParams, loginKeyStrength)
+            } ?: false
     }
 
 
     companion object {
-        inline operator fun <reified D,S : WithAdapter> invoke(
+        inline operator fun <reified D, S : WithAdapter> invoke(
             t: Parsec3Transport<S>,
             savedData: SuperloginData<D>? = null,
         ): SuperloginClient<D, S> {

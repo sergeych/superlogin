@@ -136,9 +136,12 @@ internal class WsServerKtTest {
         runBlocking {
             val api = TestApiServer<WithAdapter>()
             val slc = SuperloginClient<TestData, WithAdapter>(client)
+            assertNull(slc.dataKey)
             assertEquals(LoginState.LoggedOut, slc.state.value)
             var rt = slc.register("foo", "passwd", TestData("bar!"))
+            val dk1 = slc.dataKey
             assertIs<Registration.Result.Success>(rt)
+            assertEquals(dk1, rt.dataKey)
             val secret = rt.secret
             var token = rt.loginToken
             println(rt.secret)
@@ -154,6 +157,7 @@ internal class WsServerKtTest {
                 slc.register("foo", "passwd", TestData("nobar"))
             }
             slc.logout()
+            assertNull(slc.dataKey)
             assertIs<LoginState.LoggedOut>(slc.state.value)
             assertEquals(null, slc.call(api.loginName))
 
@@ -164,9 +168,14 @@ internal class WsServerKtTest {
 
             var ar = slc.loginByToken(token)
             assertNotNull(ar)
+            assertNull(slc.dataKey)
             assertEquals("bar!", ar.data?.foo)
             assertTrue { slc.isLoggedIn }
             assertEquals("foo", slc.call(api.loginName))
+
+            assertNull(slc.retrieveDataKey("badpasswd"))
+            assertEquals(dk1?.id, slc.retrieveDataKey("passwd")?.id)
+            assertEquals(dk1?.id, slc.dataKey?.id)
 //
             assertThrowsAsync<IllegalStateException> { slc.loginByToken(token) }
         }
@@ -187,6 +196,7 @@ internal class WsServerKtTest {
             assertEquals(LoginState.LoggedOut, slc.state.value)
             var rt = slc.register("foo", "passwd", TestData("bar!"))
             assertIs<Registration.Result.Success>(rt)
+            val dk1 = slc.dataKey!!
             slc.logout()
             assertNull(slc.loginByPassword("foo", "passwd2"))
             var ar = slc.loginByPassword("foo", "passwd")
@@ -194,6 +204,7 @@ internal class WsServerKtTest {
             assertEquals("bar!", ar.data?.foo)
             assertTrue { slc.isLoggedIn }
             assertEquals("foo", slc.call(api.loginName))
+            assertEquals(dk1.id, slc.dataKey!!.id)
         }
     }
 
@@ -226,9 +237,9 @@ internal class WsServerKtTest {
             assertEquals("foo", slc.call(api.loginName))
 
             slc.logout()
-            assertNull(slc.resetPasswordAndLogin("bad_secret", "newpass2"))
-            assertNull(slc.resetPasswordAndLogin("3PBpp-Aris5-ogdV7-Abz36-ggGH5", "newpass2"))
-            ar = slc.resetPasswordAndLogin(secret,"newpass2")
+            assertNull(slc.resetPasswordAndSignIn("bad_secret", "newpass2"))
+            assertNull(slc.resetPasswordAndSignIn("3PBpp-Aris5-ogdV7-Abz36-ggGH5", "newpass2"))
+            ar = slc.resetPasswordAndSignIn(secret,"newpass2")
             assertNotNull(ar)
             assertEquals("bar!", ar.data?.foo)
             assertTrue { slc.isLoggedIn }
