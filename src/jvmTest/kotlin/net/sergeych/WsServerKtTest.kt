@@ -219,6 +219,7 @@ internal class WsServerKtTest {
             val slc = SuperloginClient<TestData, S1>(client)
             assertEquals(LoginState.LoggedOut, slc.state.value)
             var rt = slc.register("foo", "passwd", TestData("bar!"))
+            val dk1 = slc.dataKey!!
             assertIs<Registration.Result.Success>(rt)
             val secret = rt.secret
             var token = rt.loginToken
@@ -244,8 +245,7 @@ internal class WsServerKtTest {
             assertEquals("bar!", ar.data?.foo)
             assertTrue { slc.isLoggedIn }
             assertEquals("foo", slc.call(api.loginName))
-
-
+            assertEquals(dk1.id, slc.dataKey!!.id)
         }
     }
     @Test
