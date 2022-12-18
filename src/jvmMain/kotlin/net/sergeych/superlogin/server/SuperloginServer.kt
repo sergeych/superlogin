@@ -77,7 +77,6 @@ inline fun <reified D, S : SLServerSession<D>,A: CommandHost<S>> Application.sup
  *
  *         // Sample service-specifiv api (above login api):
  *         on(api.loginName) {
- *             println("login name called. now we have $currentLoginName : $superloginData")
  *             currentLoginName
  *         }
  *     }

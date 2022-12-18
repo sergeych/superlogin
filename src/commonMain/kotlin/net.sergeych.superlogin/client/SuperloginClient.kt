@@ -1,15 +1,16 @@
 package net.sergeych.superlogin.client
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import net.sergeych.boss_serialization.BossDecoder
 import net.sergeych.boss_serialization_mp.BossEncoder
-import net.sergeych.mp_logger.LogTag
-import net.sergeych.mp_logger.Loggable
-import net.sergeych.mp_logger.exception
-import net.sergeych.mp_logger.warning
+import net.sergeych.mp_logger.*
 import net.sergeych.mp_tools.globalLaunch
 import net.sergeych.parsec3.*
 import net.sergeych.superlogin.*
@@ -62,7 +63,6 @@ class SuperloginClient<D, S : WithAdapter>(
                     val v = _state.value
                     if (v !is LoginState.LoggedIn<*> || v.loginData != value) {
                         _state.value = LoginState.LoggedIn(value)
-                        if (!adapterReady.isCompleted) adapterReady.complete(Unit)
                     }
                 }
             }
@@ -71,20 +71,34 @@ class SuperloginClient<D, S : WithAdapter>(
     val applicationData: D?
         get() = (state.value as? LoginState.LoggedIn<D>)?.loginData?.data
 
-    private var adapterReady = CompletableDeferred<Unit>()
+    private var adapterReady = MutableStateFlow<Boolean>(false)
 
-    override suspend fun adapter(): Adapter<S> = transport.adapter()
-//        do {
-//            try {
-//                adapterReady.await()
-//                return transport.adapter()
-//            } catch (x: Throwable) {
-//                exception { "failed to get adapter" to x }
-//            }
-//        } while (true)
-//    }
+    /**
+     * The flow that tracks readiness state of the connetion adapter. In other works,
+     * when its value is false, [adapter] deferred is not completed and [call] method
+     * will wait until it is ready.
+     *
+     * The reason for it is as follows: when connetion drops,
+     * superlogin client awaits its automatic restore (by parsec3) and then tries to re-login.
+     * Until this login restore will finish either successful or not, calling parsec3 commands
+     * may produce unpredictable results, so it is automatically postponed until login state
+     * is restored. This is completely transparent to the caller, and this state flow allows
+     * client to be notified on actual connection state.
+     */
+    val connectionReady = adapterReady.asStateFlow()
 
+    override suspend fun adapter(): Adapter<S> {
+        adapterReady.waitFor(true)
+        return transport.adapter()
+    }
+
+    /**
+     * Call client API commands with it (uses [adapter] under the hood)
+     */
     suspend fun <A, R> call(ca: CommandDescriptor<A, R>, args: A): R = adapter().invokeCommand(ca, args)
+    /**
+     * Call client API commands with it (uses [adapter] under the hood)
+     */
     suspend fun <R> call(ca: CommandDescriptor<Unit, R>): R = adapter().invokeCommand(ca)
 
     private suspend fun <A, R> invoke(ca: CommandDescriptor<A, R>, args: A): R =
@@ -98,20 +112,26 @@ class SuperloginClient<D, S : WithAdapter>(
 
     private suspend fun tryRestoreLogin() {
         slData?.loginToken?.let { token ->
-            try {
-                val ar = transport.adapter().invokeCommand(serverApi.slLoginByToken, token)
-                slData = if (ar is AuthenticationResult.Success) {
-                    val data: D? = ar.applicationData?.let { BossDecoder.decodeFrom(dataType, it) }
-                    SuperloginData(ar.loginName, ar.loginToken, data)
-                } else {
-                    null
+            debug { "trying to restore login with a token" }
+            while( true ) {
+                try {
+                    val ar = transport.adapter().invokeCommand(serverApi.slLoginByToken, token)
+                    slData = if (ar is AuthenticationResult.Success) {
+                        val data: D? = ar.applicationData?.let { BossDecoder.decodeFrom(dataType, it) }
+                        debug { "login restored by the token: ${ar.loginName}" }
+                        SuperloginData(ar.loginName, ar.loginToken, data)
+                    } else {
+                        debug { "failed to restore login by the token: $ar" }
+                        null
+                    }
+                    break
+                } catch (t: Throwable) {
+                    exception { "failed to restore login by token, will retry" to t }
+                    delay(1500)
                 }
-            } catch (t: Throwable) {
-                exception { "failed to restore login by token, will retry" to t }
-                delay(1500)
-                tryRestoreLogin()
             }
         } ?: warning { "tryRestoreLogin is ignored as slData is now null" }
+        adapterReady.value = true
     }
 
     init {
@@ -120,6 +140,7 @@ class SuperloginClient<D, S : WithAdapter>(
             transport.connectedFlow.collect { on ->
                 if (on) tryRestoreLogin()
                 else {
+                    adapterReady.value = false
                     _cflow.value = false
                 }
             }
@@ -131,16 +152,24 @@ class SuperloginClient<D, S : WithAdapter>(
         transport.close()
     }
 
+    /**
+     * Force dropping and re-establish underlying parsec3 connection and restore
+     * login state to the current.
+     */
     override fun reconnect() {
+        adapterReady.value = false
         transport.reconnect()
-        if (!adapterReady.isActive) {
-            adapterReady.cancel()
-            adapterReady = CompletableDeferred()
-        }
     }
 
     private var registration: Registration? = null
 
+    /**
+     * Whether the client is supposed to be logged in. Note that it is also true when
+     * there is no ready connection (means also offline), if there is information about staved
+     * loged in state. It can change at aby time as server may drop login state too. Use
+     * [state] flow to track the state changes and [adapterReady] flow to track connection state
+     * that are in fact independent to some degree.
+     */
     val isLoggedIn get() = state.value.isLoggedIn
 
     /**

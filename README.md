@@ -26,7 +26,6 @@ fun Application.testServerModule() {
     superloginServer(TestApiServer<TestSession>(), { TestSession() }) {
         // This is a sample of your porvate API implementation:
         on(api.loginName) {
-            println("login name called. now we have $currentLoginName : $superloginData")
             currentLoginName
         }
     }

@@ -9,7 +9,7 @@ val logback_version="1.2.10"
 
 
 group = "net.sergeych"
-version = "0.0.1-SNAPSHOT"
+version = "0.0.2-SNAPSHOT"
 
 repositories {
     mavenCentral()
@@ -49,7 +49,7 @@ kotlin {
             dependencies {
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.3")
                 api("net.sergeych:unikrypto:1.2.2-SNAPSHOT")
-                api("net.sergeych:parsec3:0.3.3-SNAPSHOT")
+                api("net.sergeych:parsec3:0.4.0-SNAPSHOT")
                 api("net.sergeych:boss-serialization-mp:0.2.4-SNAPSHOT")
                 api("net.sergeych:unikrypto:1.2.2-SNAPSHOT")
             }
@@ -76,7 +76,7 @@ kotlin {
         val jsMain by getting
         val jsTest by getting
     }
-+    publishing {
+    publishing {
         repositories {
             maven {
                 url = uri("https://maven.universablockchain.com/")

@@ -5,6 +5,11 @@ import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
+import net.sergeych.mp_logger.Log
+import net.sergeych.mp_logger.LogTag
+import net.sergeych.mp_logger.info
+import net.sergeych.mp_tools.encodeToBase64Compact
+import net.sergeych.parsec3.Adapter
 import net.sergeych.parsec3.CommandHost
 import net.sergeych.parsec3.Parsec3WSClient
 import net.sergeych.parsec3.WithAdapter
@@ -19,56 +24,66 @@ import superlogin.assertThrowsAsync
 import kotlin.random.Random
 import kotlin.test.*
 
-data class TestSession(var buzz: String = "BuZZ") : SLServerSession<TestData>() {
-    val byLogin = mutableMapOf<String, RegistrationArgs>()
-    val byLoginId = mutableMapOf<List<Byte>, RegistrationArgs>()
-    val byRestoreId = mutableMapOf<List<Byte>, RegistrationArgs>()
-    val byToken = mutableMapOf<List<Byte>, RegistrationArgs>()
-    val tokens = mutableMapOf<String, ByteArray>()
+class TestStorage(
+    val byLogin: MutableMap<String, RegistrationArgs> = mutableMapOf<String, RegistrationArgs>(),
+    val byLoginId: MutableMap<List<Byte>, RegistrationArgs> = mutableMapOf<List<Byte>, RegistrationArgs>(),
+    val byRestoreId: MutableMap<List<Byte>, RegistrationArgs> = mutableMapOf<List<Byte>, RegistrationArgs>(),
+    val byToken: MutableMap<List<Byte>, RegistrationArgs> = mutableMapOf<List<Byte>, RegistrationArgs>(),
+    val tokens: MutableMap<String, ByteArray> = mutableMapOf<String, ByteArray>(),
+)
+data class TestSession(val s: TestStorage) : SLServerSession<TestData>() {
+
+    var buzz: String = "BuZZ"
 
     override suspend fun register(ra: RegistrationArgs): AuthenticationResult {
         println("ra: ${ra.loginName} : $currentLoginName : $superloginData")
         return when {
-            ra.loginName in byLogin -> {
+            ra.loginName in s.byLogin -> {
                 AuthenticationResult.LoginUnavailable
             }
 
-            ra.loginId.toList() in byLoginId -> AuthenticationResult.LoginIdUnavailable
-            ra.restoreId.toList() in byRestoreId -> AuthenticationResult.RestoreIdUnavailable
+            ra.loginId.toList() in s.byLoginId -> AuthenticationResult.LoginIdUnavailable
+            ra.restoreId.toList() in s.byRestoreId -> AuthenticationResult.RestoreIdUnavailable
             else -> {
-                byLogin[ra.loginName] = ra
-                byRestoreId[ra.restoreId.toList()] = ra
-                byLoginId[ra.loginId.toList()] = ra
+                s.byLogin[ra.loginName] = ra
+                s.byRestoreId[ra.restoreId.toList()] = ra
+                s.byLoginId[ra.loginId.toList()] = ra
                 val token = Random.Default.nextBytes(32)
-                byToken[token.toList()] = ra
-                tokens[ra.loginName] = token
+                s.byToken[token.toList()] = ra
+                s.tokens[ra.loginName] = token
+                println("registered with token ${token.encodeToBase64Compact()}")
+                println("                      ${s.byToken[token.toList()]}")
                 AuthenticationResult.Success(ra.loginName, token, ra.extraData)
             }
         }
     }
 
     override suspend fun loginByToken(token: ByteArray): AuthenticationResult {
-        return byToken[token.toList()]?.let {
+        println("requested login by tokeb ${token.encodeToBase64Compact()}")
+        println("                         ${s.byToken[token.toList()]}")
+        println("                         ${s.byToken.size} / ${s.byLoginId.size}")
+
+        return s.byToken[token.toList()]?.let {
             AuthenticationResult.Success(it.loginName, token, it.extraData)
         }
             ?: AuthenticationResult.LoginUnavailable
     }
 
     override suspend fun requestDerivationParams(loginName: String): PasswordDerivationParams? =
-        byLogin[loginName]?.derivationParams
+        s.byLogin[loginName]?.derivationParams
 
     override suspend fun requestACOByLoginName(loginName: String, loginId: ByteArray): ByteArray? {
-        return byLogin[loginName]?.packedACO
+        return s.byLogin[loginName]?.packedACO
     }
 
     override suspend fun requestACOByRestoreId(restoreId: ByteArray): ByteArray? {
-        return byRestoreId[restoreId.toList()]?.packedACO
+        return s.byRestoreId[restoreId.toList()]?.packedACO
     }
 
     override suspend fun loginByKey(loginName: String, publicKey: PublicKey): AuthenticationResult {
-        val ra = byLogin[loginName]
+        val ra = s.byLogin[loginName]
         return if (ra != null && ra.loginPublicKey.id == publicKey.id)
-            AuthenticationResult.Success(ra.loginName, tokens[loginName]!!, ra.extraData)
+            AuthenticationResult.Success(ra.loginName, s.tokens[loginName]!!, ra.extraData)
         else AuthenticationResult.LoginUnavailable
     }
 
@@ -79,8 +94,8 @@ data class TestSession(var buzz: String = "BuZZ") : SLServerSession<TestData>() 
         newLoginKey: PublicKey,
         newLoginId: ByteArray
     ) {
-        val r = byLogin[loginName]?.also {
-           byLoginId.remove(it.loginId.toList())
+        val r = s.byLogin[loginName]?.also {
+           s.byLoginId.remove(it.loginId.toList())
         }?.copy(
             packedACO = packedACO,
             derivationParams = passwordDerivationParams,
@@ -88,10 +103,10 @@ data class TestSession(var buzz: String = "BuZZ") : SLServerSession<TestData>() 
             loginId = newLoginId
         )
             ?: throw RuntimeException("login not found")
-        byLogin[loginName] = r
-        byLoginId[newLoginId.toList()] = r
-        byToken[currentLoginToken!!.toList()] = r
-        byRestoreId[r.restoreId.toList()] = r
+        s.byLogin[loginName] = r
+        s.byLoginId[newLoginId.toList()] = r
+        s.byToken[currentLoginToken!!.toList()] = r
+        s.byRestoreId[r.restoreId.toList()] = r
     }
 
 }
@@ -99,6 +114,7 @@ data class TestSession(var buzz: String = "BuZZ") : SLServerSession<TestData>() 
 
 class TestApiServer<T : WithAdapter> : CommandHost<T>() {
     val loginName by command<Unit, String?>()
+    val dropConnection by command<Unit,Unit>()
 }
 
 
@@ -113,9 +129,9 @@ internal class WsServerKtTest {
     @Test
     fun testWsServer() {
 
-        embeddedServer(Netty, port = 8080, module = Application::testServerModule).start(wait = false)
+        embeddedServer(Netty, port = 8085, module = Application::testServerModule).start(wait = false)
 
-        val client = Parsec3WSClient("ws://localhost:8080/api/p3")
+        val client = Parsec3WSClient("ws://localhost:8085/api/p3")
 
         runBlocking {
             val api = TestApiServer<WithAdapter>()
@@ -226,6 +242,7 @@ internal class WsServerKtTest {
         embeddedServer(Netty, port = 8082, module = Application::testServerModule).start(wait = false)
         val client = Parsec3WSClient("ws://localhost:8082/api/p3")
         runBlocking {
+            Log.connectConsole(Log.Level.DEBUG)
             val slc = SuperloginClient<TestData, WithAdapter>(client)
             val serverApi = SuperloginServerApi<WithAdapter>()
             assertThrowsAsync<SLInternalException> {
@@ -235,13 +252,42 @@ internal class WsServerKtTest {
 
     }
 
+    @Test
+    fun testDroppedConnection() {
+        embeddedServer(Netty, port = 8089, module = Application::testServerModule).start(wait = false)
+        val client = Parsec3WSClient("ws://localhost:8089/api/p3")
+        runBlocking {
+            Log.connectConsole(Log.Level.DEBUG)
+            val l = LogTag("Test")
+            val api = TestApiServer<WithAdapter>()
+            val slc = SuperloginClient<TestData, WithAdapter>(client)
+            val serverApi = SuperloginServerApi<WithAdapter>()
+
+            var rt = slc.register("foo", "passwd", TestData("bar!"))
+            assertIs<Registration.Result.Success>(rt)
+
+            assertEquals("foo", slc.call(api.loginName))
+
+            l.info { "---- breaking the connection ----------" }
+            assertThrowsAsync<Adapter.CloseError> { slc.call(api.dropConnection) }
+
+            assertTrue { slc.isLoggedIn }
+            assertEquals("foo", slc.call(api.loginName))
+        }
+
+    }
+
+
 }
 
 fun Application.testServerModule() {
-    superloginServer(TestApiServer<TestSession>(), { TestSession() }) {
+    val s = TestStorage()
+    superloginServer(TestApiServer<TestSession>(), { TestSession(s) }) {
         on(api.loginName) {
-            println("login name called. now we have $currentLoginName : $superloginData")
             currentLoginName
+        }
+        on(api.dropConnection) {
+            adapter.cancel()
         }
     }
 }
