@@ -35,10 +35,20 @@ data class SuperloginData<T>(
     val data: T? = null,
 )
 
+@Serializable
+class ClientState<T>(val slData: SuperloginData<T>, val dataKey: SymmetricKey) {
+    val loginName by slData::loginName
+    val loginToken by slData::loginToken
+    val data by slData::data
+
+    constructor(loginName: String,loginToken: ByteArray?,data: T?, dataKey: SymmetricKey)
+    : this(SuperloginData(loginName, loginToken, data), dataKey)
+}
+
 
 class SuperloginClient<D, S : WithAdapter>(
     private val transport: Parsec3Transport<S>,
-    savedData: SuperloginData<D>? = null,
+    savedData: ClientState<D>? = null,
     private val dataType: KType,
     override val exceptionsRegistry: ExceptionsRegistry = ExceptionsRegistry(),
 ) : Parsec3Transport<S>, Loggable by LogTag("SLCLI") {
@@ -52,7 +62,7 @@ class SuperloginClient<D, S : WithAdapter>(
     private val _cflow = MutableStateFlow<Boolean>(false)
     override val connectedFlow: StateFlow<Boolean> = _cflow
 
-    private var slData: SuperloginData<D>? = savedData
+    private var clientState: ClientState<D>? = savedData
         set(value) {
             if (field != value) {
                 field = value
@@ -60,7 +70,6 @@ class SuperloginClient<D, S : WithAdapter>(
                     // do actual disconnect work
                     _cflow.value = false
                     _state.value = LoginState.LoggedOut
-                    dataKey = null
                 } else {
                     val v = _state.value
                     if (v !is LoginState.LoggedIn<*> || v.loginData != value) {
@@ -114,23 +123,25 @@ class SuperloginClient<D, S : WithAdapter>(
     private val serverApi = SuperloginServerApi<WithAdapter>()
 
     private suspend fun tryRestoreLogin() {
-        slData?.loginToken?.let { token ->
-            debug { "trying to restore login with a token" }
-            while (true) {
-                try {
-                    val ar = transport.adapter().invokeCommand(serverApi.slLoginByToken, token)
-                    slData = if (ar is AuthenticationResult.Success) {
-                        val data: D? = ar.applicationData?.let { BossDecoder.decodeFrom(dataType, it) }
-                        debug { "login restored by the token: ${ar.loginName}" }
-                        SuperloginData(ar.loginName, ar.loginToken, data)
-                    } else {
-                        debug { "failed to restore login by the token: $ar" }
-                        null
+        clientState?.let { clientState ->
+            clientState.loginToken?.let { token ->
+                debug { "trying to restore login with a token" }
+                while (true) {
+                    try {
+                        val ar = transport.adapter().invokeCommand(serverApi.slLoginByToken, token)
+                        this.clientState = if (ar is AuthenticationResult.Success) {
+                            val data: D? = ar.applicationData?.let { BossDecoder.decodeFrom(dataType, it) }
+                            debug { "login restored by the token: ${ar.loginName}" }
+                            ClientState(ar.loginName, ar.loginToken, data, clientState.dataKey)
+                        } else {
+                            debug { "failed to restore login by the token: $ar" }
+                            null
+                        }
+                        break
+                    } catch (t: Throwable) {
+                        exception { "failed to restore login by token, will retry" to t }
+                        delay(1500)
                     }
-                    break
-                } catch (t: Throwable) {
-                    exception { "failed to restore login by token, will retry" to t }
-                    delay(1500)
                 }
             }
         } ?: warning { "tryRestoreLogin is ignored as slData is now null" }
@@ -181,8 +192,7 @@ class SuperloginClient<D, S : WithAdapter>(
      * as it would require storing user's password which must not be done_.
      * Use [retrieveDataKey] to restore to with a password (when logged in)
      */
-    var dataKey: SymmetricKey? = null
-        private set
+    val dataKey: SymmetricKey? get() = clientState?.dataKey
 
     /**
      * Perform registration and login attempt and return the result. It automatically caches and reuses intermediate
@@ -204,8 +214,7 @@ class SuperloginClient<D, S : WithAdapter>(
         return rn.registerWithData(loginName, password, extraData = BossEncoder.encode(dataType, data))
             .also { rr ->
                 if (rr is Registration.Result.Success) {
-                    slData = SuperloginData(loginName, rr.loginToken, extractData(rr.encodedData))
-                    dataKey = rr.dataKey
+                    clientState = ClientState(loginName, rr.loginToken, extractData(rr.encodedData), rr.dataKey)
                 }
             }
     }
@@ -225,7 +234,7 @@ class SuperloginClient<D, S : WithAdapter>(
     suspend fun logout() {
         mustBeLoggedIn()
         invoke(serverApi.slLogout)
-        slData = null
+        clientState = null
     }
 
     /**
@@ -235,24 +244,23 @@ class SuperloginClient<D, S : WithAdapter>(
      * @return updated login data (and new token value) or null if token is not (or not anymore)
      *         available for logging in.
      */
-    suspend fun loginByToken(token: ByteArray): SuperloginData<D>? {
+    suspend fun loginByToken(token: ByteArray,newDataKey: SymmetricKey): ClientState<D>? {
         mustBeLoggedOut()
         val r = invoke(serverApi.slLoginByToken, token)
         return when (r) {
-            AuthenticationResult.LoginIdUnavailable -> TODO()
-            AuthenticationResult.LoginUnavailable -> null
-            AuthenticationResult.RestoreIdUnavailable -> TODO()
-            is AuthenticationResult.Success -> SuperloginData(
+            is AuthenticationResult.Success -> ClientState(
                 r.loginName,
                 r.loginToken,
-                extractData(r.applicationData)
+                extractData(r.applicationData),
+                newDataKey
             ).also {
-                slData = it
+                clientState = it
             }
+            else -> null
         }
     }
 
-    suspend fun loginByPassword(loginName: String, password: String): SuperloginData<D>? {
+    suspend fun loginByPassword(loginName: String, password: String): ClientState<D>? {
         mustBeLoggedOut()
         // Request derivation params
         val params = invoke(serverApi.slRequestDerivationParams, loginName)
@@ -276,10 +284,10 @@ class SuperloginClient<D, S : WithAdapter>(
                         )
                     )
                     if (result is AuthenticationResult.Success) {
-                        SuperloginData(loginName, result.loginToken, extractData(result.applicationData))
+                        ClientState(loginName, result.loginToken, extractData(result.applicationData),
+                            aco.payload.dataStorageKey)
                             .also {
-                                slData = it
-                                dataKey = aco.data.payload.dataStorageKey
+                                clientState = it
                             }
                     } else null
                 }
@@ -290,41 +298,41 @@ class SuperloginClient<D, S : WithAdapter>(
         }
     }
 
-    /**
-     * Try to retrieve dataKey (usually after login by token), it is impossible
-     * to do without a valid password key. Should be logged in. If [dataKey] is not null
-     * what means is already known, returns it immediatel, otherwise uses password
-     * to access ACO on the server and extract data key.
-     * @return data key or null if it is impossible to do (no connection or wrong password)
-     */
-    suspend fun retrieveDataKey(password: String): SymmetricKey? {
-        mustBeLoggedIn()
-        dataKey?.let { return it }
-
-        val loginName = slData?.loginName ?: throw SLInternalException("slData: empty login name")
-        try {
-            val params = invoke(
-                serverApi.slRequestDerivationParams,
-                loginName
-            )
-            val keys = DerivedKeys.derive(password, params)
-            // Request login data by derived it
-            return invoke(
-                serverApi.slRequestACOByLoginName,
-                RequestACOByLoginNameArgs(loginName, keys.loginId)
-            ).let { loginRequest ->
-                AccessControlObject.unpackWithKey<SuperloginRestoreAccessPayload>(
-                    loginRequest.packedACO,
-                    keys.loginAccessKey
-                )?.let { aco ->
-                    aco.data.payload.dataStorageKey.also { dataKey = it }
-                }
-            }
-        } catch (t: Throwable) {
-            t.printStackTrace()
-            return null
-        }
-    }
+//    /**
+//     * Try to retrieve dataKey (usually after login by token), it is impossible
+//     * to do without a valid password key. Should be logged in. If [dataKey] is not null
+//     * what means is already known, returns it immediatel, otherwise uses password
+//     * to access ACO on the server and extract data key.
+//     * @return data key or null if it is impossible to do (no connection or wrong password)
+//     */
+//    suspend fun retrieveDataKey(password: String): SymmetricKey? {
+//        mustBeLoggedIn()
+//        dataKey?.let { return it }
+//
+//        val loginName = slData?.loginName ?: throw SLInternalException("slData: empty login name")
+//        try {
+//            val params = invoke(
+//                serverApi.slRequestDerivationParams,
+//                loginName
+//            )
+//            val keys = DerivedKeys.derive(password, params)
+//            // Request login data by derived it
+//            return invoke(
+//                serverApi.slRequestACOByLoginName,
+//                RequestACOByLoginNameArgs(loginName, keys.loginId)
+//            ).let { loginRequest ->
+//                AccessControlObject.unpackWithKey<SuperloginRestoreAccessPayload>(
+//                    loginRequest.packedACO,
+//                    keys.loginAccessKey
+//                )?.let { aco ->
+//                    aco.data.payload.dataStorageKey.also { dataKey = it }
+//                }
+//            }
+//        } catch (t: Throwable) {
+//            t.printStackTrace()
+//            return null
+//        }
+//    }
 
     /**
      * Resets password and log in using a `secret` string (one that wwas reported on registration. __Never store
@@ -342,15 +350,14 @@ class SuperloginClient<D, S : WithAdapter>(
         secret: String, newPassword: String,
         params: PasswordDerivationParams = PasswordDerivationParams(),
         loginKeyStrength: Int = 2048,
-    ): SuperloginData<D>? {
+    ): ClientState<D>? {
         mustBeLoggedOut()
         return try {
             val (id, key) = RestoreKey.parse(secret)
             val packedACO = invoke(serverApi.slRequestACOBySecretId, id)
             AccessControlObject.unpackWithKey<SuperloginRestoreAccessPayload>(packedACO, key)?.let {
                 changePasswordWithACO(it, newPassword)
-                dataKey = it.data.payload.dataStorageKey
-                slData
+                clientState
             }
         } catch (x: RestoreKey.InvalidSecretException) {
             null
@@ -400,7 +407,8 @@ class SuperloginClient<D, S : WithAdapter>(
             )
             when (result) {
                 is AuthenticationResult.Success -> {
-                    slData = SuperloginData(result.loginName, result.loginToken, extractData(result.applicationData))
+                    clientState = ClientState(result.loginName, result.loginToken, extractData(result.applicationData),
+                        aco.payload.dataStorageKey)
                     true
                 }
 
@@ -428,7 +436,7 @@ class SuperloginClient<D, S : WithAdapter>(
         loginKeyStrength: Int = 2048,
     ): Boolean {
         mustBeLoggedIn()
-        val loginName = slData?.loginName ?: throw SLInternalException("loginName should be defined here")
+        val loginName = clientState?.loginName ?: throw SLInternalException("loginName should be defined here")
         val dp = invoke(serverApi.slRequestDerivationParams, loginName)
         val keys = DerivedKeys.derive(oldPassword, dp)
         val data = invoke(serverApi.slRequestACOByLoginName, RequestACOByLoginNameArgs(loginName, keys.loginId))
@@ -442,7 +450,7 @@ class SuperloginClient<D, S : WithAdapter>(
     companion object {
         inline operator fun <reified D, S : WithAdapter> invoke(
             t: Parsec3Transport<S>,
-            savedData: SuperloginData<D>? = null,
+            savedData: ClientState<D>? = null,
         ): SuperloginClient<D, S> {
             return SuperloginClient(t, savedData, typeOf<D>())
         }

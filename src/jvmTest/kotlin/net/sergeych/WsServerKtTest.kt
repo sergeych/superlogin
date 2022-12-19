@@ -166,18 +166,17 @@ internal class WsServerKtTest {
             assertIs<LoginState.LoggedOut>(slc.state.value)
             assertEquals(null, slc.call(api.loginName))
 
-            var ar = slc.loginByToken(token)
+            var ar = slc.loginByToken(token, dk1!!)
             assertNotNull(ar)
-            assertNull(slc.dataKey)
             assertEquals("bar!", ar.data?.foo)
             assertTrue { slc.isLoggedIn }
             assertEquals("foo", slc.call(api.loginName))
 
-            assertNull(slc.retrieveDataKey("badpasswd"))
-            assertEquals(dk1?.id, slc.retrieveDataKey("passwd")?.id)
-            assertEquals(dk1?.id, slc.dataKey?.id)
+//            assertNull(slc.retrieveDataKey("badpasswd"))
+//            assertEquals(dk1?.id, slc.retrieveDataKey("passwd")?.id)
+//            assertEquals(dk1?.id, slc.dataKey?.id)
 //
-            assertThrowsAsync<IllegalStateException> { slc.loginByToken(token) }
+            assertThrowsAsync<IllegalStateException> { slc.loginByToken(token, dk1) }
         }
 
     }

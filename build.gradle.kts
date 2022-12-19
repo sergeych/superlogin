@@ -9,7 +9,7 @@ val logback_version="1.2.10"
 
 
 group = "net.sergeych"
-version = "0.1.2-SNAPSHOT"
+version = "0.2.1-SNAPSHOT"
 
 repositories {
     mavenCentral()

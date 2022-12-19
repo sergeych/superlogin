@@ -19,7 +19,7 @@ data class RegistrationArgs(
     val packedACO: ByteArray,
     val extraData: ByteArray? = null
 ) {
-    inline fun <reified T>toSuccess(loginToken: ByteArray,extraData: T): AuthenticationResult.Success {
+    inline fun <reified T>toSuccess(loginToken: ByteArray, extraData: T): AuthenticationResult.Success {
         return AuthenticationResult.Success(
             loginName, loginToken, BossEncoder.encode(extraData)
         )
@@ -37,7 +37,7 @@ sealed class AuthenticationResult {
     data class Success(
         val loginName: String,
         val loginToken: ByteArray,
-        val applicationData: ByteArray?
+        val applicationData: ByteArray?,
     ): AuthenticationResult()
 
     @Serializable
