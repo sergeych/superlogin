@@ -718,10 +718,10 @@ typescript@3.9.5:
   resolved "https://registry.yarnpkg.com/typescript/-/typescript-3.9.5.tgz#586f0dba300cde8be52dd1ac4f7e1009c1b13f36"
   integrity sha512-hSAifV3k+i6lEoCJ2k6R2Z/rp/H3+8sdmcn5NrS3/3kE7+RyZXm9aqvxWqjEXHAd8b0pShatpcdMTvEdvAJltQ==
 
-unicrypto@1.14.0:
-  version "1.14.0"
-  resolved "https://registry.yarnpkg.com/unicrypto/-/unicrypto-1.14.0.tgz#eee5f2d88d33bb6ba774c8395edf3f4e2a4a68dc"
-  integrity sha512-NNaMM2Has6Dzk0OAxhR/OfocTKPgA4TbseKqXZ2A7Kb1gcBRN+He7wuxO6QdDOP7tE5SuXVf9C8R9xeswi/0MQ==
+unicrypto@1.14.1:
+  version "1.14.1"
+  resolved "https://registry.yarnpkg.com/unicrypto/-/unicrypto-1.14.1.tgz#da950ff59cb08b992d9c2eec574d385756901e7b"
+  integrity sha512-5hS1hDQ6QYIysEyTYuy73C3c5h8kmPTkBp4mJ3nPrI5tv7VZOIMWb0heUTc/EQ2x0VAq7WmhKEwXNKl6pOIBsg==
   dependencies:
     buffer "^5.4.2"
     diffie-hellman "^5.0.3"

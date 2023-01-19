@@ -65,7 +65,6 @@ class Registration(
     inline suspend fun <reified T> register(
         login: String,
         password: String,
-        derivationParams: PasswordDerivationParams = PasswordDerivationParams(rounds = pbkdfRounds),
         extraData: T? = null,
     ): Result = registerWithData(login, password, extraData?.let { BossEncoder.encode(it) })
 

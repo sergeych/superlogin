@@ -79,6 +79,7 @@ class SuperloginClient<D, S : WithAdapter>(
             }
         }
 
+    @Suppress("UNCHECKED_CAST")
     val applicationData: D?
         get() = (state.value as? LoginState.LoggedIn<D>)?.loginData?.data
 
@@ -356,7 +357,7 @@ class SuperloginClient<D, S : WithAdapter>(
             val (id, key) = RestoreKey.parse(secret)
             val packedACO = invoke(serverApi.slRequestACOBySecretId, id)
             AccessControlObject.unpackWithKey<SuperloginRestoreAccessPayload>(packedACO, key)?.let {
-                changePasswordWithACO(it, newPassword)
+                changePasswordWithACO(it, newPassword, params, loginKeyStrength)
                 clientState
             }
         } catch (x: RestoreKey.InvalidSecretException) {
