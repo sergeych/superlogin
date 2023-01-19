@@ -9,7 +9,7 @@ val logback_version="1.2.10"
 
 
 group = "net.sergeych"
-version = "0.2.1-SNAPSHOT"
+version = "0.2.1"
 
 repositories {
     mavenCentral()
@@ -51,7 +51,7 @@ kotlin {
                 api("net.sergeych:unikrypto:1.2.2-SNAPSHOT")
                 api("net.sergeych:parsec3:0.4.1-SNAPSHOT")
                 api("net.sergeych:boss-serialization-mp:0.2.4-SNAPSHOT")
-                api("net.sergeych:unikrypto:1.2.2-SNAPSHOT")
+                api("net.sergeych:unikrypto:1.2.5")
             }
         }
         val commonTest by getting {
@@ -79,10 +79,14 @@ kotlin {
     publishing {
         repositories {
             maven {
+                val mavenUser: String by project
+                val mavenPassword: String by project
                 url = uri("https://maven.universablockchain.com/")
                 credentials {
-                    username = System.getenv("maven_user")
-                    password = System.getenv("maven_password")
+                    username = mavenUser
+                    password = mavenPassword
+//                    username = System.getenv("maven_user")
+//                    password = System.getenv("maven_password")
                 }
             }
         }

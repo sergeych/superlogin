@@ -157,6 +157,7 @@ internal class WsServerKtTest {
                 slc.register("foo", "passwd", TestData("nobar"))
             }
             slc.logout()
+            assertFalse{ slc.isLoggedIn }
             assertNull(slc.dataKey)
             assertIs<LoginState.LoggedOut>(slc.state.value)
             assertEquals(null, slc.call(api.loginName))

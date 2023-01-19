@@ -292,8 +292,8 @@ class SuperloginClient<D, S : WithAdapter>(
                     } else null
                 }
             } catch (t: Throwable) {
-                t.printStackTrace()
-                throw t
+                debug { "error while signign in: $t" }
+                null
             }
         }
     }
