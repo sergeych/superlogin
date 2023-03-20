@@ -9,7 +9,7 @@ val logback_version="1.2.10"
 
 
 group = "net.sergeych"
-version = "0.2.1"
+version = "0.2.2"
 
 repositories {
     mavenCentral()
@@ -52,7 +52,7 @@ kotlin {
             dependencies {
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.3")
                 api("net.sergeych:unikrypto:1.2.2-SNAPSHOT")
-                api("net.sergeych:parsec3:0.4.1-SNAPSHOT")
+                api("net.sergeych:parsec3:0.4.3-SNAPSHOT")
                 api("net.sergeych:boss-serialization-mp:0.2.4-SNAPSHOT")
                 api("net.sergeych:unikrypto:1.2.5")
             }
