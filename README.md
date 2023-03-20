@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> Current stable version 0.2.1.  
+> Current stable version 0.2.3  
 
 This project targets to provide command set of multiplatform tools to faciliate restore access with non-recoverable passwords by providing a backup `secret` string as the only way to reset the password. It is ready to use in android, web and server apps (native target is not yet supported because of the encryption layer not yet supporting it)
 
@@ -35,7 +35,7 @@ and add in dependencies like:
 ~~~
 dependencies {
     //...  
-    implementation("net.sergeych:unikrypto:1.2.5")
+    implementation("net.sergeych:superlogin:0.2.3")
 }
 ~~~
 
