@@ -1,4 +1,4 @@
-# The ripository is moved!
+# The repository is moved!
 
 https://gitea.sergeych.net/SergeychWorks/superlogin
 
